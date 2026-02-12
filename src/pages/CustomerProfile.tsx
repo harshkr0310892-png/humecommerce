@@ -21,8 +21,8 @@ import {
   Clock, CheckCircle, Truck, XCircle, LogOut, Camera,
   Edit2, Save, X, ChevronDown, ChevronUp, Sparkles, Shield, Star, Heart, Copy, StopCircle
 } from "lucide-react";
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
