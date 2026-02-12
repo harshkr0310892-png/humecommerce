@@ -351,6 +351,10 @@ const royalStyles = `
   }
 
   /* Markdown Content Styles */
+  .markdown-content {
+    color: #ffffff;
+  }
+
   .markdown-content table {
     width: 100%;
     border-collapse: collapse;
@@ -363,7 +367,7 @@ const royalStyles = `
   
   .markdown-content th {
     background: rgba(212, 175, 55, 0.1);
-    color: #D4AF37;
+    color: #ffffff;
     font-weight: 600;
     text-align: left;
     padding: 12px;
@@ -373,7 +377,7 @@ const royalStyles = `
   .markdown-content td {
     padding: 12px;
     border-bottom: 1px solid rgba(212, 175, 55, 0.1);
-    color: #e0e0e0;
+    color: #ffffff;
   }
   
   .markdown-content tr:last-child td {
@@ -398,12 +402,12 @@ const royalStyles = `
   }
   
   .markdown-content strong {
-    color: #D4AF37;
+    color: #ffffff;
     font-weight: 600;
   }
   
   .markdown-content a {
-    color: #D4AF37;
+    color: #ffffff;
     text-decoration: underline;
   }
 `;
