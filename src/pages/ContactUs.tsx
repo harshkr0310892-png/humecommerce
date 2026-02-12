@@ -21,10 +21,11 @@ export default function ContactUs() {
           {/* Return Policy Notice */}
           <Alert className="mb-8 border-amber-200 bg-amber-50 text-amber-800">
             <AlertCircle className="h-5 w-5" />
-            <AlertTitle className="font-semibold text-amber-900">Return Policy Notice</AlertTitle>
+            <AlertTitle className="font-semibold text-amber-900">important Notice!</AlertTitle>
             <AlertDescription className="text-amber-700">
-              If you wish to return your product, please download your invoice first as proof of purchase. 
-              You can download the invoice from the order tracking page. Please have your invoice ready when contacting us about returns.
+           If you are logged in but still cannot submit the Contact Us form, it means the admin has banned your account.
+           You will not be able to submit the form.
+           We use this system to prevent fake spam submissions.
             </AlertDescription>
           </Alert>
 
