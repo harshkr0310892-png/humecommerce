@@ -269,6 +269,12 @@ const royalStyles = `
   .chat-message-bot {
     background: rgba(45, 45, 70, 0.9);
     border: 1px solid rgba(212, 175, 55, 0.2);
+    color: #ffffff;
+  }
+
+  .chat-message-bot .markdown-content,
+  .chat-message-bot .markdown-content * {
+    color: #ffffff !important;
   }
 
   /* Loading Animation */
