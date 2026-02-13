@@ -263,13 +263,18 @@ const royalStyles = `
   /* Chatbot Styles */
   .chat-message-user {
     background: linear-gradient(135deg, #D4AF37 0%, #B8860B 100%);
-    color: #1a1a2e;
+    color: #ffffff;
   }
 
   .chat-message-bot {
     background: rgba(45, 45, 70, 0.9);
     border: 1px solid rgba(212, 175, 55, 0.2);
     color: #ffffff;
+  }
+
+  .chat-message-user .markdown-content,
+  .chat-message-user .markdown-content * {
+    color: #ffffff !important;
   }
 
   .chat-message-bot .markdown-content,
@@ -359,10 +364,13 @@ const royalStyles = `
   /* Markdown Content Styles */
   .markdown-content {
     color: #ffffff;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .markdown-content table {
     width: 100%;
+    min-width: 520px;
     border-collapse: collapse;
     margin: 1rem 0;
     font-size: 0.9rem;
@@ -415,6 +423,19 @@ const royalStyles = `
   .markdown-content a {
     color: #ffffff;
     text-decoration: underline;
+  }
+
+  @media (max-width: 640px) {
+    .markdown-content table {
+      min-width: 440px;
+      margin: 0.75rem 0;
+    }
+
+    .markdown-content th,
+    .markdown-content td {
+      padding: 8px;
+      font-size: 0.85rem;
+    }
   }
 `;
 
