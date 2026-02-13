@@ -1943,6 +1943,62 @@ const ChatbotComponent = () => {
     return text.trim();
   };
 
+  const extractProductIdsFromText = (text: string) => {
+    const ids: string[] = [];
+    const re = /\/product\/([0-9a-fA-F-]{36})/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const id = m[1];
+      if (typeof id === "string") ids.push(id);
+    }
+    return Array.from(new Set(ids));
+  };
+
+  const getFirstImageUrl = (raw: unknown): string | null => {
+    if (!raw) return null;
+    if (Array.isArray(raw)) {
+      const url = raw.find((x) => typeof x === "string" && x.trim().length > 0);
+      return typeof url === "string" ? url : null;
+    }
+    return null;
+  };
+
+  const fetchProductAndVariantImages = async (productIds: string[]) => {
+    if (!productIds.length) return new Map<string, string[]>();
+
+    const [productsResp, variantsResp] = await Promise.all([
+      supabase.from("products").select("id, image_url, images").in("id", productIds),
+      (supabase.from("product_variants" as any) as any)
+        .select("product_id, image_urls")
+        .in("product_id", productIds),
+    ]);
+
+    const map = new Map<string, string[]>();
+    const pushUnique = (productId: string, url: string | null) => {
+      if (!url) return;
+      if (!map.has(productId)) map.set(productId, []);
+      const list = map.get(productId)!;
+      if (!list.includes(url)) list.push(url);
+    };
+
+    (productsResp.data || []).forEach((p) => {
+      const row = p as unknown as { id?: unknown; image_url?: unknown; images?: unknown };
+      if (typeof row.id !== "string" || row.id.length === 0) return;
+      const primary = typeof row.image_url === "string" ? row.image_url : null;
+      pushUnique(row.id, primary);
+      pushUnique(row.id, getFirstImageUrl(row.images));
+    });
+
+    (variantsResp.data || []).forEach((v: any) => {
+      const productId = typeof v?.product_id === "string" ? v.product_id : null;
+      if (!productId) return;
+      const first = getFirstImageUrl(v?.image_urls);
+      pushUnique(productId, first);
+    });
+
+    return map;
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -1993,7 +2049,7 @@ const ChatbotComponent = () => {
 
     try {
       const apiMessages = [
-        { role: 'system', content: "You are a helpful, friendly shopping assistant for our store. Reply in the same language as the user (English, Hindi, or Hinglish). Keep the tone normal and casual. Avoid royal/servant-style language. Keep responses clear and not too long.\n\nIf you see a 'SHOP PRODUCT CATALOG' block in the conversation, you must recommend only from that catalog (do not invent products). When recommending products:\n- Ask 1-2 quick questions if the user didn't mention budget/specs/usage.\n- Suggest the best 3 options with short reasons.\n- Include product Link(s) exactly as provided.\n- If the user asks for a table, format it using standard Markdown tables.", imageUrl: undefined },
+        { role: 'system', content: "You are a helpful, friendly shopping assistant for our store. Reply in the same language as the user (English, Hindi, or Hinglish). Keep the tone normal and casual. Avoid royal/servant-style language. Keep responses clear and not too long.\n\nIf you see a 'SHOP PRODUCT CATALOG' block in the conversation, you must recommend only from that catalog (do not invent products).\n\nWhen recommending products:\n- Ask 1-2 quick questions if the user didn't mention budget/specs/usage.\n- Suggest the best 3 options with short reasons.\n- Always mention stock left from the catalog (e.g., \"10 left\").\n- If Has variants is Yes, mention which variants/attributes exist (e.g., Color/Size) and give 1-2 example combinations.\n- Include product Link(s) exactly as provided.\n- If an Image URL is provided for a product, include it as a Markdown image: ![Product](IMAGE_URL)\n- If the user asks for a table, format it using standard Markdown tables.", imageUrl: undefined },
         ...messages.map(msg => ({
           role: msg.sender === 'user' ? 'user' as const : 'assistant' as const,
           content: msg.text,
@@ -2015,12 +2071,18 @@ const ChatbotComponent = () => {
 
       const botResponseRaw = extractGeminiText(data) || "Sorry, I couldn't process that. Please try again.";
       const botResponse = cleanAiText(botResponseRaw);
+
+      const recommendedProductIds = extractProductIdsFromText(botResponse);
+      const productImagesMap = await fetchProductAndVariantImages(recommendedProductIds);
+      const attachedImages = recommendedProductIds.flatMap((id) => (productImagesMap.get(id) ?? []).slice(0, 3));
       
       const botMessage = {
         id: (Date.now() + 1).toString(),
         text: botResponse,
         sender: 'bot' as const,
-        timestamp: new Date()
+        timestamp: new Date(),
+        images: attachedImages.length > 0 ? attachedImages : undefined,
+        imageUrl: attachedImages.length > 0 ? attachedImages[0] : undefined
       };
       
       setMessages(prev => [...prev, botMessage]);
