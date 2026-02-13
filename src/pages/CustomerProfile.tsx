@@ -2006,6 +2006,46 @@ const ChatbotComponent = () => {
       .trim();
   };
 
+  const detectUserLanguageHint = (text: string): "en" | "hi" | "hinglish" => {
+    const cleaned = (text || "").trim();
+    if (!cleaned) return "en";
+    if (/[\u0900-\u097F]/.test(cleaned)) return "hi";
+    const t = cleaned.toLowerCase();
+    const words = [
+      "kya",
+      "kaise",
+      "kyu",
+      "nahi",
+      "haan",
+      "aap",
+      "ap",
+      "mujhe",
+      "chahiye",
+      "chaiye",
+      "lena",
+      "bata",
+      "batao",
+      "karo",
+      "kar",
+      "bhai",
+      "yaar",
+      "mere",
+      "meri",
+      "tum",
+      "main",
+      "hai",
+      "ho",
+    ];
+    let hits = 0;
+    for (const w of words) {
+      const re = new RegExp(`\\b${w}\\b`, "g");
+      const m = t.match(re);
+      if (m) hits += m.length;
+      if (hits >= 2) break;
+    }
+    return hits >= 2 ? "hinglish" : "en";
+  };
+
   const pickVoice = (lang: string) => {
     const normalized = lang.toLowerCase();
     const matches = ttsVoices.filter((v) => (v.lang || "").toLowerCase().startsWith(normalized));
@@ -2363,11 +2403,13 @@ const ChatbotComponent = () => {
         prev.map((m) => (m.id === tempUserId ? { ...m, id: insertedUser.id, timestamp: new Date(insertedUser.created_at) } : m))
       );
 
+      const languageHint = detectUserLanguageHint(rawText);
+
       const apiMessages = [
         {
           role: "system",
           content:
-            "You are a helpful, friendly shopping assistant for our store. Reply in the same language as the user (English, Hindi, or Hinglish). Keep the tone normal and casual. Avoid royal/servant-style language. Keep responses clear and not too long.\n\nIf you see a 'SHOP PRODUCT CATALOG' block in the conversation, you must recommend only from that catalog (do not invent products).\n\nWhen recommending products:\n- Ask 1-2 quick questions if the user didn't mention budget/specs/usage.\n- Suggest the best 3 options with short reasons.\n- Always mention stock left from the catalog (e.g., \"10 left\").\n- If Has variants is Yes, mention which variants/attributes exist (e.g., Color/Size) and give 1-2 example combinations.\n- Include product Link(s) exactly as provided.\n- If an Image URL is provided for a product, include it as a Markdown image: ![Product](IMAGE_URL)\n- If the user asks for a table, format it using standard Markdown tables.",
+            `You are a helpful, friendly shopping assistant for our store. Keep the tone normal and casual. Keep responses clear and not too long.\n\nLanguage mode for this request: ${languageHint}\n- If language mode is hi: reply in Hindi using Devanagari (हिंदी), not romanized Hindi.\n- If language mode is hinglish: reply in Hinglish (Hindi words in Roman + simple English), natural and easy.\n- If language mode is en: reply in English.\n- If user asks \"English/Hindi/Hinglish\", follow that.\n\nIf you see a 'SHOP PRODUCT CATALOG' block in the conversation, you must recommend only from that catalog (do not invent products).\n\nWhen recommending products:\n- Ask 1-2 quick questions if the user didn't mention budget/specs/usage.\n- Suggest the best 3 options with short reasons.\n- Always mention stock left from the catalog (e.g., \"10 left\").\n- If Has variants is Yes, mention which variants/attributes exist (e.g., Color/Size) and give 1-2 example combinations.\n- Include product Link(s) exactly as provided.\n- If an Image URL is provided for a product, include it as a Markdown image: ![Product](IMAGE_URL)\n- If the user asks for a table, format it using standard Markdown tables.`,
           imageUrl: undefined,
         },
         ...messages.map((msg) => ({
