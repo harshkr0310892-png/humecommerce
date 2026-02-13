@@ -246,6 +246,12 @@ const royalStyles = `
   }
 
   /* Premium Scrollbar */
+  .royal-scrollbar {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: #B8860B rgba(26, 26, 46, 0.5);
+  }
+
   .royal-scrollbar::-webkit-scrollbar {
     width: 6px;
   }
@@ -2515,8 +2521,15 @@ const ChatbotComponent = () => {
         {isSidebarCollapsed ? null : SidebarContent}
       </div>
 
-      <div className="flex-1 md:pl-4 pt-4 md:pt-0 flex flex-col min-w-0">
-        <div className="flex justify-between items-center mb-4 pb-4" style={{ borderBottom: "1px solid rgba(212, 175, 55, 0.2)" }}>
+      <div className="flex-1 md:pl-4 pt-4 md:pt-0 flex flex-col min-w-0 min-h-0">
+        <div
+          className="sticky top-0 z-30 flex justify-between items-center pb-4 pt-2 mb-4"
+          style={{
+            borderBottom: "1px solid rgba(212, 175, 55, 0.2)",
+            background: "linear-gradient(145deg, rgba(26, 26, 46, 0.98) 0%, rgba(22, 33, 62, 0.98) 100%)",
+            backdropFilter: "blur(10px)",
+          }}
+        >
           <div>
             <h3 className="gold-text text-lg font-semibold flex items-center gap-2">
               <button
@@ -2557,7 +2570,7 @@ const ChatbotComponent = () => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2 royal-scrollbar min-w-0">
+        <div className="flex-1 min-h-0 overflow-y-auto mb-4 space-y-4 pr-2 royal-scrollbar min-w-0 overscroll-contain">
           {isLoadingHistory ? (
             <div className="flex items-center gap-2 text-gray-400 text-sm py-3">
               <Loader2 className="w-4 h-4 animate-spin" />
