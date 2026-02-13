@@ -263,7 +263,7 @@ const royalStyles = `
   /* Chatbot Styles */
   .chat-message-user {
     background: linear-gradient(135deg, #D4AF37 0%, #B8860B 100%);
-    color: #ffffff;
+    color: #1a1a2e;
   }
 
   .chat-message-bot {
@@ -274,7 +274,7 @@ const royalStyles = `
 
   .chat-message-user .markdown-content,
   .chat-message-user .markdown-content * {
-    color: #ffffff !important;
+    color: #1a1a2e !important;
   }
 
   .chat-message-bot .markdown-content,
