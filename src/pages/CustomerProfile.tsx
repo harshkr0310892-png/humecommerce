@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { 
   Crown, Home, Loader2, User, Phone, MapPin, Package, 
   Clock, CheckCircle, Truck, XCircle, LogOut, Camera,
-  Edit2, Save, X, ChevronDown, ChevronUp, Sparkles, Shield, Star, Heart, Copy, StopCircle, Menu, PanelLeftClose, PanelLeftOpen
+  Edit2, Save, X, ChevronDown, ChevronUp, Sparkles, Shield, Star, Heart, Copy, StopCircle, Menu, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Volume2, VolumeX
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -1912,11 +1912,150 @@ const ChatbotComponent = () => {
     return true;
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const voicePrefixRef = useRef<string>("");
+  const [ttsLang, setTtsLang] = useState<"auto" | "en" | "hi">("auto");
+  const [ttsVoices, setTtsVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
 
   type GeminiGenerateContentResponse = {
     candidates?: Array<{
       content?: { parts?: Array<{ text?: string }> };
     }>;
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-IN";
+
+    recognition.onresult = (event: any) => {
+      const results = event?.results;
+      if (!results) return;
+      let transcript = "";
+      for (let i = 0; i < results.length; i++) {
+        transcript += (results[i]?.[0]?.transcript ?? "").toString();
+      }
+      setInputMessage(`${voicePrefixRef.current}${transcript}`.trimStart());
+    };
+
+    recognition.onerror = (event: any) => {
+      const code = (event?.error ?? "").toString();
+      if (code && code !== "no-speech") {
+        toast.error("Voice input failed. Please allow microphone permission.");
+      }
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    return () => {
+      try {
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onend = null;
+        recognition.stop();
+      } catch {}
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    const load = () => {
+      try {
+        const list = synth.getVoices() || [];
+        setTtsVoices(list);
+      } catch {
+        setTtsVoices([]);
+      }
+    };
+
+    load();
+    synth.onvoiceschanged = load;
+
+    return () => {
+      try {
+        synth.onvoiceschanged = null;
+        synth.cancel();
+      } catch {}
+    };
+  }, []);
+
+  const stripForTts = (text: string) => {
+    return text
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/`[^`]*`/g, " ")
+      .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
+      .replace(/\[[^\]]+\]\([^)]+\)/g, " ")
+      .replace(/[#>*_~]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
+  const pickVoice = (lang: string) => {
+    const normalized = lang.toLowerCase();
+    const matches = ttsVoices.filter((v) => (v.lang || "").toLowerCase().startsWith(normalized));
+    if (matches.length === 0) return null;
+    const preferred = matches.find((v) => v.default) || matches.find((v) => (v.name || "").toLowerCase().includes("google")) || matches[0];
+    return preferred;
+  };
+
+  const speakBotMessage = (messageId: string, text: string) => {
+    if (typeof window === "undefined") return;
+    const synth = window.speechSynthesis;
+    const Utterance = (window as any).SpeechSynthesisUtterance;
+    if (!synth || !Utterance) {
+      toast.error("Voice playback not supported on this browser.");
+      return;
+    }
+
+    if (speakingMessageId === messageId) {
+      try {
+        synth.cancel();
+      } catch {}
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    const cleaned = stripForTts(text);
+    if (!cleaned) return;
+
+    try {
+      synth.cancel();
+    } catch {}
+
+    const hasHindiScript = /[\u0900-\u097F]/.test(cleaned);
+    const lang = ttsLang === "auto" ? (hasHindiScript ? "hi-IN" : "en-IN") : ttsLang === "hi" ? "hi-IN" : "en-IN";
+    const utter = new Utterance(cleaned);
+    utter.lang = lang;
+    const voice = pickVoice(lang);
+    if (voice) utter.voice = voice;
+    utter.rate = 1;
+    utter.pitch = 1;
+
+    utter.onend = () => {
+      setSpeakingMessageId(null);
+    };
+    utter.onerror = () => {
+      setSpeakingMessageId(null);
+    };
+
+    setSpeakingMessageId(messageId);
+    synth.speak(utter);
   };
 
   useEffect(() => {
@@ -2299,6 +2438,12 @@ const ChatbotComponent = () => {
   };
 
   const handleSendMessage = async () => {
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+      setIsListening(false);
+    }
     const text = inputMessage;
     const imgs = uploadedImages.length > 0 ? [...uploadedImages] : [];
     setInputMessage("");
@@ -2553,6 +2698,16 @@ const ChatbotComponent = () => {
             <p className="text-gray-400 text-xs mt-1">English / Hindi / Hinglish</p>
           </div>
           <div className="flex gap-2">
+            <Select value={ttsLang} onValueChange={(v) => setTtsLang(v as any)}>
+              <SelectTrigger className="royal-btn-outline h-9 px-3 rounded-lg text-xs w-[120px]">
+                <SelectValue placeholder="Voice" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Voice: Auto</SelectItem>
+                <SelectItem value="en">Voice: English</SelectItem>
+                <SelectItem value="hi">Voice: Hindi</SelectItem>
+              </SelectContent>
+            </Select>
             <button
               className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-1"
               onClick={() => setWebSearchEnabled((v) => !v)}
@@ -2585,6 +2740,19 @@ const ChatbotComponent = () => {
                 <div className="markdown-content break-words">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
                 </div>
+
+                {message.sender === "bot" ? (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => speakBotMessage(message.id, message.text)}
+                      className="royal-btn-outline h-8 w-8 rounded-lg flex items-center justify-center"
+                      title={speakingMessageId === message.id ? "Stop voice" : "Play voice"}
+                    >
+                      {speakingMessageId === message.id ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                    </button>
+                  </div>
+                ) : null}
 
                 {(message.images && message.images.length > 0) || message.imageUrl ? (
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -2668,6 +2836,35 @@ const ChatbotComponent = () => {
               onClick={() => document.getElementById("chatbot-image-upload")?.click()}
             >
               <Camera className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              disabled={isLoading || isLoadingHistory || !(window as any)?.SpeechRecognition && !(window as any)?.webkitSpeechRecognition}
+              className="royal-btn-outline h-12 w-12 rounded-lg flex items-center justify-center"
+              onClick={() => {
+                const recognition = recognitionRef.current;
+                if (!recognition) {
+                  toast.error("Voice input not supported on this browser.");
+                  return;
+                }
+                if (isListening) {
+                  try {
+                    recognition.stop();
+                  } catch {}
+                  setIsListening(false);
+                  return;
+                }
+                voicePrefixRef.current = inputMessage ? `${inputMessage.trim()} ` : "";
+                setIsListening(true);
+                try {
+                  recognition.start();
+                } catch {
+                  setIsListening(false);
+                }
+              }}
+              title={isListening ? "Stop voice" : "Voice input"}
+            >
+              {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
             <input
               id="chatbot-image-upload"
