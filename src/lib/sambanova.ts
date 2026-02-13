@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 class GeminiService {
   async generateContent(
     messages: Array<{ role: string; content: string; imageUrl?: string }>,
-    model: string = 'gemini-3-flash-preview',
+    model: string = 'gemini-2.5-flash',
     temperature: number = 0.1
   ) {
     try {
