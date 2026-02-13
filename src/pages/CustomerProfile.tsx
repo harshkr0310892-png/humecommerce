@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { 
   Crown, Home, Loader2, User, Phone, MapPin, Package, 
   Clock, CheckCircle, Truck, XCircle, LogOut, Camera,
-  Edit2, Save, X, ChevronDown, ChevronUp, Sparkles, Shield, Star, Heart, Copy, StopCircle
+  Edit2, Save, X, ChevronDown, ChevronUp, Sparkles, Shield, Star, Heart, Copy, StopCircle, Menu, PanelLeftClose, PanelLeftOpen
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -1891,6 +1891,12 @@ const ChatbotComponent = () => {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingConversationId, setPendingConversationId] = useState<string | null>(null);
+  const [pendingConversationTitle, setPendingConversationTitle] = useState("");
   const [webSearchEnabled, setWebSearchEnabled] = useState(() => {
     try {
       const v = localStorage.getItem('cp_ai_web_search');
@@ -1917,6 +1923,22 @@ const ChatbotComponent = () => {
       setUserEmail(email);
     };
     loadUser();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(min-width: 768px)");
+    const apply = () => {
+      if (mql.matches) setIsSidebarOpen(false);
+    };
+    apply();
+    const anyMql = mql as unknown as { addEventListener?: any; removeEventListener?: any; addListener?: any; removeListener?: any };
+    if (anyMql.addEventListener) anyMql.addEventListener("change", apply);
+    else if (anyMql.addListener) anyMql.addListener(apply);
+    return () => {
+      if (anyMql.removeEventListener) anyMql.removeEventListener("change", apply);
+      else if (anyMql.removeListener) anyMql.removeListener(apply);
+    };
   }, []);
 
   useEffect(() => {
@@ -2319,25 +2341,37 @@ const ChatbotComponent = () => {
     await sendMessageCore({ text: "Tell me a joke", webSearch: false });
   };
 
-  const renameConversation = async (convId: string) => {
+  const openRenameDialog = (convId: string) => {
     const current = conversations.find((c) => c.id === convId)?.title || "New chat";
-    const nextTitleRaw = window.prompt("Rename chat", current);
-    const nextTitle = (nextTitleRaw ?? "").trim();
-    if (!nextTitle) return;
+    setPendingConversationId(convId);
+    setPendingConversationTitle(current);
+    setRenameDialogOpen(true);
+  };
+
+  const submitRename = async () => {
+    const convId = pendingConversationId;
+    const nextTitle = pendingConversationTitle.trim();
+    if (!convId || !nextTitle) return;
     try {
       const { error } = await (supabase.from("ai_conversations" as any) as any).update({ title: nextTitle }).eq("id", convId);
       if (error) throw error;
       setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title: nextTitle } : c)));
       toast.success("Chat renamed");
+      setRenameDialogOpen(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to rename chat";
       toast.error(msg);
     }
   };
 
-  const deleteConversation = async (convId: string) => {
-    const ok = window.confirm("Delete this chat? This will remove all messages.");
-    if (!ok) return;
+  const openDeleteDialog = (convId: string) => {
+    setPendingConversationId(convId);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    const convId = pendingConversationId;
+    if (!convId) return;
     try {
       const { error } = await (supabase.from("ai_conversations" as any) as any).delete().eq("id", convId);
       if (error) throw error;
@@ -2353,110 +2387,154 @@ const ChatbotComponent = () => {
         }
       }
       toast.success("Chat deleted");
+      setDeleteDialogOpen(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to delete chat";
       toast.error(msg);
     }
   };
 
-  return (
-    <div className="flex flex-col md:flex-row h-[560px] min-h-[420px]">
-      <div
-        className="md:w-64 w-full md:pr-3 md:border-r border-b md:border-b-0 flex flex-col"
-        style={{
-          borderColor: "rgba(212, 175, 55, 0.2)",
-        }}
-      >
-        <div className="flex items-center justify-between pb-3 mb-3" style={{ borderBottom: "1px solid rgba(212, 175, 55, 0.2)" }}>
-          <div className="min-w-0">
-            <div className="text-xs text-gray-400">Logged in</div>
-            <div className="text-sm text-white truncate">{userEmail ?? "—"}</div>
+  const SidebarContent = (
+    <div className="h-full flex flex-col">
+      <div className="flex items-center justify-between pb-3 mb-3" style={{ borderBottom: "1px solid rgba(212, 175, 55, 0.2)" }}>
+        <div className="min-w-0">
+          <div className="text-xs text-gray-400">Logged in</div>
+          <div className="text-sm text-white truncate">{userEmail ?? "—"}</div>
+        </div>
+        <button type="button" onClick={clearChat} disabled={isLoading} className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs">
+          New
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto pr-1 royal-scrollbar">
+        {isLoadingConversations ? (
+          <div className="flex items-center gap-2 text-gray-400 text-sm py-3">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading chats...
           </div>
+        ) : conversations.length === 0 ? (
+          <div className="text-gray-400 text-sm py-3">No chats yet</div>
+        ) : (
+          <div className="space-y-2">
+            {conversations.map((c) => {
+              const active = c.id === activeConversationId;
+              return (
+                <div
+                  key={c.id}
+                  className={cn(
+                    "w-full flex items-start gap-2 rounded-lg px-3 py-2 transition-colors border",
+                    active ? "bg-amber-400/10 border-amber-400/30" : "bg-transparent border-amber-400/10 hover:bg-amber-400/5"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setActiveConversationId(c.id);
+                      setIsSidebarOpen(false);
+                      await loadConversationMessages(c.id);
+                    }}
+                    disabled={isLoading}
+                    className="flex-1 min-w-0 text-left"
+                  >
+                    <div className="text-sm text-white truncate">{c.title || "New chat"}</div>
+                    <div className="text-[11px] text-gray-400">
+                      {new Date(c.updated_at || c.created_at).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openRenameDialog(c.id);
+                    }}
+                    disabled={isLoading}
+                    className="p-1 rounded-md text-amber-200/70 hover:text-amber-200 hover:bg-amber-400/10"
+                    title="Rename"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      openDeleteDialog(c.id);
+                    }}
+                    disabled={isLoading}
+                    className="p-1 rounded-md text-red-300/70 hover:text-red-200 hover:bg-red-500/10"
+                    title="Delete"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+    <div className="relative flex flex-col md:flex-row h-[560px] min-h-[420px]">
+      {isSidebarOpen ? (
+        <div className="fixed inset-0 z-50 md:hidden">
           <button
             type="button"
-            onClick={clearChat}
-            disabled={isLoading}
-            className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs"
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-label="Close history"
+          />
+          <div
+            className="absolute left-0 top-0 h-full w-[85%] max-w-[320px] p-4"
+            style={{ background: "linear-gradient(145deg, rgba(26, 26, 46, 0.98) 0%, rgba(22, 33, 62, 0.98) 100%)" }}
           >
-            New
-          </button>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-white font-semibold">History</div>
+              <button
+                type="button"
+                className="p-2 rounded-lg text-gray-300 hover:bg-white/5"
+                onClick={() => setIsSidebarOpen(false)}
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {SidebarContent}
+          </div>
         </div>
+      ) : null}
 
-        <div className="flex-1 overflow-y-auto pr-1 royal-scrollbar">
-          {isLoadingConversations ? (
-            <div className="flex items-center gap-2 text-gray-400 text-sm py-3">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Loading chats...
-            </div>
-          ) : conversations.length === 0 ? (
-            <div className="text-gray-400 text-sm py-3">No chats yet</div>
-          ) : (
-            <div className="space-y-2">
-              {conversations.map((c) => {
-                const active = c.id === activeConversationId;
-                return (
-                  <div
-                    key={c.id}
-                    className={cn(
-                      "w-full flex items-start gap-2 rounded-lg px-3 py-2 transition-colors border",
-                      active ? "bg-amber-400/10 border-amber-400/30" : "bg-transparent border-amber-400/10 hover:bg-amber-400/5"
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setActiveConversationId(c.id);
-                        await loadConversationMessages(c.id);
-                      }}
-                      disabled={isLoading}
-                      className="flex-1 min-w-0 text-left"
-                    >
-                      <div className="text-sm text-white truncate">{c.title || "New chat"}</div>
-                      <div className="text-[11px] text-gray-400">
-                        {new Date(c.updated_at || c.created_at).toLocaleString([], {
-                          month: "short",
-                          day: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        renameConversation(c.id);
-                      }}
-                      disabled={isLoading}
-                      className="p-1 rounded-md text-amber-200/70 hover:text-amber-200 hover:bg-amber-400/10"
-                      title="Rename"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        await deleteConversation(c.id);
-                      }}
-                      disabled={isLoading}
-                      className="p-1 rounded-md text-red-300/70 hover:text-red-200 hover:bg-red-500/10"
-                      title="Delete"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      <div
+        className={cn(
+          "hidden md:flex md:pr-3 md:border-r flex-col transition-all",
+          isSidebarCollapsed ? "md:w-0 md:pr-0 md:border-r-0 overflow-hidden" : "md:w-64"
+        )}
+        style={{ borderColor: "rgba(212, 175, 55, 0.2)" }}
+      >
+        {isSidebarCollapsed ? null : SidebarContent}
       </div>
 
       <div className="flex-1 md:pl-4 pt-4 md:pt-0 flex flex-col min-w-0">
         <div className="flex justify-between items-center mb-4 pb-4" style={{ borderBottom: "1px solid rgba(212, 175, 55, 0.2)" }}>
           <div>
             <h3 className="gold-text text-lg font-semibold flex items-center gap-2">
+              <button
+                type="button"
+                className="md:hidden royal-btn-outline h-9 w-9 rounded-lg flex items-center justify-center"
+                onClick={() => setIsSidebarOpen(true)}
+                aria-label="Open history"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                className="hidden md:flex royal-btn-outline h-9 w-9 rounded-lg items-center justify-center"
+                onClick={() => setIsSidebarCollapsed((v) => !v)}
+                aria-label={isSidebarCollapsed ? "Open history" : "Close history"}
+              >
+                {isSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+              </button>
               <Sparkles className="w-5 h-5 text-amber-400" /> AI Assistant
             </h3>
             <p className="text-gray-400 text-xs mt-1">English / Hindi / Hinglish</p>
@@ -2605,6 +2683,74 @@ const ChatbotComponent = () => {
       </div>
     </div>
     </div>
+    <Dialog
+      open={renameDialogOpen}
+      onOpenChange={(open) => {
+        setRenameDialogOpen(open);
+        if (!open) {
+          setPendingConversationId(null);
+          setPendingConversationTitle("");
+        }
+      }}
+    >
+      <DialogContent className="royal-dialog">
+        <DialogHeader>
+          <DialogTitle className="text-white">Rename chat</DialogTitle>
+          <DialogDescription className="text-gray-400">Set a new title for this chat.</DialogDescription>
+        </DialogHeader>
+        <Input
+          value={pendingConversationTitle}
+          onChange={(e) => setPendingConversationTitle(e.target.value)}
+          className="royal-input"
+          placeholder="Chat title"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submitRename();
+          }}
+        />
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            className="royal-btn-outline"
+            onClick={() => setRenameDialogOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button type="button" className="royal-btn" onClick={submitRename} disabled={!pendingConversationTitle.trim()}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog
+      open={deleteDialogOpen}
+      onOpenChange={(open) => {
+        setDeleteDialogOpen(open);
+        if (!open) setPendingConversationId(null);
+      }}
+    >
+      <DialogContent className="royal-dialog">
+        <DialogHeader>
+          <DialogTitle className="text-white">Delete chat</DialogTitle>
+          <DialogDescription className="text-gray-400">This will permanently remove all messages in this chat.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            className="royal-btn-outline"
+            onClick={() => setDeleteDialogOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button type="button" className="royal-btn" onClick={confirmDelete}>
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 };
 
