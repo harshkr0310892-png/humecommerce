@@ -2564,9 +2564,6 @@ const ChatbotComponent = () => {
             <button className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-1" onClick={tellJoke} disabled={isLoading}>
               Joke
             </button>
-            <button className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-1" onClick={clearChat} disabled={isLoading}>
-              Clear
-            </button>
           </div>
         </div>
 
