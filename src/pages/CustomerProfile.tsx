@@ -1877,13 +1877,20 @@ export default function CustomerProfile() {
 
 // Chatbot Component with Royal Theme
 const ChatbotComponent = () => {
+  const greetingMessage = { id: "1", text: "Hi! I'm your AI assistant. You can talk to me in English, Hindi, ya Hinglish.", sender: "bot" as const, timestamp: new Date() };
   const [messages, setMessages] = useState<Array<{id: string; text: string; sender: 'user' | 'bot'; timestamp: Date; imageUrl?: string; images?: string[]}>>([
-    { id: '1', text: "Hi! I'm your AI assistant. You can talk to me in English, Hindi, ya Hinglish.", sender: 'bot', timestamp: new Date() }
+    greetingMessage
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<Array<{ id: string; title: string; updated_at: string; created_at: string }>>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(() => {
     try {
       const v = localStorage.getItem('cp_ai_web_search');
@@ -1898,6 +1905,82 @@ const ChatbotComponent = () => {
     candidates?: Array<{
       content?: { parts?: Array<{ text?: string }> };
     }>;
+  };
+
+  useEffect(() => {
+    const loadUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (error) return;
+      const id = data.user?.id ?? null;
+      const email = data.user?.email ?? null;
+      setUserId(id);
+      setUserEmail(email);
+    };
+    loadUser();
+  }, []);
+
+  useEffect(() => {
+    const loadConversations = async () => {
+      if (!userId) return;
+      setIsLoadingConversations(true);
+      try {
+        const { data, error } = await (supabase.from("ai_conversations" as any) as any)
+          .select("id,title,updated_at,created_at")
+          .order("updated_at", { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        const list = (data || []) as Array<{ id: string; title: string; updated_at: string; created_at: string }>;
+        setConversations(list);
+        if (!activeConversationId && list.length > 0) {
+          const first = list[0]?.id;
+          if (first) {
+            setActiveConversationId(first);
+            await loadConversationMessages(first);
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to load chat history";
+        toast.error(msg);
+      } finally {
+        setIsLoadingConversations(false);
+      }
+    };
+    loadConversations();
+  }, [userId]);
+
+  const loadConversationMessages = async (conversationId: string) => {
+    setIsLoadingHistory(true);
+    try {
+      const { data, error } = await (supabase.from("ai_messages" as any) as any)
+        .select("id,role,content,images,created_at")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
+        .limit(200);
+      if (error) throw error;
+      const rows = (data || []) as Array<{ id: string; role: "user" | "bot"; content: string; images: unknown; created_at: string }>;
+      if (rows.length === 0) {
+        setMessages([greetingMessage]);
+        return;
+      }
+      setMessages([
+        ...rows.map((r) => {
+          const imgs = Array.isArray(r.images) ? r.images.filter((x): x is string => typeof x === "string") : [];
+          return {
+            id: r.id,
+            text: r.content,
+            sender: r.role === "user" ? ("user" as const) : ("bot" as const),
+            timestamp: new Date(r.created_at),
+            images: imgs.length > 0 ? imgs : undefined,
+            imageUrl: imgs.length > 0 ? imgs[0] : undefined,
+          };
+        }),
+      ]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to load chat history";
+      toast.error(msg);
+    } finally {
+      setIsLoadingHistory(false);
+    }
   };
 
   const callCustomerProfileAi = async (messagesPayload: unknown, signal?: AbortSignal) => {
@@ -2021,53 +2104,126 @@ const ChatbotComponent = () => {
     }
   };
 
-  const handleSendMessage = async () => {
-    if ((!inputMessage.trim() && uploadedImages.length === 0) || isLoading) return;
+  const ensureConversationId = async (firstUserText: string) => {
+    if (activeConversationId) return activeConversationId;
+    if (!userId) throw new Error("Please login again.");
+    const title = firstUserText.trim() ? firstUserText.trim().slice(0, 60) : "New chat";
+    const { data, error } = await (supabase.from("ai_conversations" as any) as any)
+      .insert({ user_id: userId, title })
+      .select("id,title,updated_at,created_at")
+      .single();
+    if (error) throw error;
+    const conv = data as { id: string; title: string; updated_at: string; created_at: string };
+    setConversations((prev) => [conv, ...prev]);
+    setActiveConversationId(conv.id);
+    return conv.id;
+  };
 
-    let messageToSend = inputMessage;
-    
-    if (uploadedImages.length > 0) {
-      messageToSend = messageToSend + (messageToSend ? ' ' : '') + `[Attached ${uploadedImages.length} image(s)]`;
+  const bumpConversationToTop = (conversationId: string) => {
+    setConversations((prev) => {
+      const idx = prev.findIndex((c) => c.id === conversationId);
+      if (idx < 0) return prev;
+      const updated = [...prev];
+      const [c] = updated.splice(idx, 1);
+      return [c, ...updated];
+    });
+  };
+
+  const persistMessage = async (params: {
+    conversationId: string;
+    role: "user" | "bot";
+    content: string;
+    images?: string[];
+  }) => {
+    if (!userId) throw new Error("Please login again.");
+    const { conversationId, role, content, images } = params;
+    const { data, error } = await (supabase.from("ai_messages" as any) as any)
+      .insert({
+        conversation_id: conversationId,
+        user_id: userId,
+        role,
+        content,
+        images: images && images.length > 0 ? images : [],
+      })
+      .select("id,created_at")
+      .single();
+    if (error) throw error;
+    return data as { id: string; created_at: string };
+  };
+
+  const sendMessageCore = async (params: { text: string; images?: string[]; webSearch?: boolean }) => {
+    const rawText = params.text;
+    const imgs = params.images ?? [];
+    if ((!rawText.trim() && imgs.length === 0) || isLoading) return;
+
+    if (!userId) {
+      toast.error("Please login again.");
+      return;
     }
 
-    const userMessage = {
-      id: Date.now().toString(),
-      text: messageToSend,
-      sender: 'user' as const,
-      timestamp: new Date(),
-      images: uploadedImages.length > 0 ? [...uploadedImages] : undefined,
-      imageUrl: uploadedImages.length > 0 ? uploadedImages[0] : undefined // Backwards compatibility
-    };
-    
-    setMessages(prev => [...prev, userMessage]);
-    setInputMessage('');
-    setUploadedImages([]);
-    setIsLoading(true);
+    let messageToSend = rawText;
+    if (imgs.length > 0) {
+      messageToSend = messageToSend + (messageToSend ? " " : "") + `[Attached ${imgs.length} image(s)]`;
+    }
 
-    // Create new AbortController
+    const tempUserId = `u_${Date.now().toString()}`;
+    const userMessage = {
+      id: tempUserId,
+      text: messageToSend,
+      sender: "user" as const,
+      timestamp: new Date(),
+      images: imgs.length > 0 ? [...imgs] : undefined,
+      imageUrl: imgs.length > 0 ? imgs[0] : undefined,
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setIsLoading(true);
     abortControllerRef.current = new AbortController();
 
+    const useWebSearch = typeof params.webSearch === "boolean" ? params.webSearch : webSearchEnabled;
+
     try {
+      const conversationId = await ensureConversationId(rawText);
+      bumpConversationToTop(conversationId);
+
+      const insertedUser = await persistMessage({
+        conversationId,
+        role: "user",
+        content: messageToSend,
+        images: imgs,
+      });
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempUserId ? { ...m, id: insertedUser.id, timestamp: new Date(insertedUser.created_at) } : m))
+      );
+
       const apiMessages = [
-        { role: 'system', content: "You are a helpful, friendly shopping assistant for our store. Reply in the same language as the user (English, Hindi, or Hinglish). Keep the tone normal and casual. Avoid royal/servant-style language. Keep responses clear and not too long.\n\nIf you see a 'SHOP PRODUCT CATALOG' block in the conversation, you must recommend only from that catalog (do not invent products).\n\nWhen recommending products:\n- Ask 1-2 quick questions if the user didn't mention budget/specs/usage.\n- Suggest the best 3 options with short reasons.\n- Always mention stock left from the catalog (e.g., \"10 left\").\n- If Has variants is Yes, mention which variants/attributes exist (e.g., Color/Size) and give 1-2 example combinations.\n- Include product Link(s) exactly as provided.\n- If an Image URL is provided for a product, include it as a Markdown image: ![Product](IMAGE_URL)\n- If the user asks for a table, format it using standard Markdown tables.", imageUrl: undefined },
-        ...messages.map(msg => ({
-          role: msg.sender === 'user' ? 'user' as const : 'assistant' as const,
+        {
+          role: "system",
+          content:
+            "You are a helpful, friendly shopping assistant for our store. Reply in the same language as the user (English, Hindi, or Hinglish). Keep the tone normal and casual. Avoid royal/servant-style language. Keep responses clear and not too long.\n\nIf you see a 'SHOP PRODUCT CATALOG' block in the conversation, you must recommend only from that catalog (do not invent products).\n\nWhen recommending products:\n- Ask 1-2 quick questions if the user didn't mention budget/specs/usage.\n- Suggest the best 3 options with short reasons.\n- Always mention stock left from the catalog (e.g., \"10 left\").\n- If Has variants is Yes, mention which variants/attributes exist (e.g., Color/Size) and give 1-2 example combinations.\n- Include product Link(s) exactly as provided.\n- If an Image URL is provided for a product, include it as a Markdown image: ![Product](IMAGE_URL)\n- If the user asks for a table, format it using standard Markdown tables.",
+          imageUrl: undefined,
+        },
+        ...messages.map((msg) => ({
+          role: msg.sender === "user" ? ("user" as const) : ("assistant" as const),
           content: msg.text,
-          images: msg.images || (msg.imageUrl ? [msg.imageUrl] : undefined)
+          images: msg.images || (msg.imageUrl ? [msg.imageUrl] : undefined),
         })),
-        { role: 'user', content: messageToSend, images: userMessage.images }
+        { role: "user", content: messageToSend, images: imgs.length > 0 ? imgs : undefined },
       ];
 
       try {
-        localStorage.setItem('cp_ai_web_search', webSearchEnabled ? '1' : '0');
+        localStorage.setItem("cp_ai_web_search", useWebSearch ? "1" : "0");
       } catch {}
 
-      const data = await callCustomerProfileAi({
-        messages: apiMessages,
-        model: "gemini-3-flash-preview",
-        temperature: 0.1,
-        web_search: webSearchEnabled,
-      }, abortControllerRef.current.signal);
+      const data = await callCustomerProfileAi(
+        {
+          messages: apiMessages,
+          model: "gemini-3-flash-preview",
+          temperature: 0.1,
+          web_search: useWebSearch,
+        },
+        abortControllerRef.current.signal
+      );
 
       const botResponseRaw = extractGeminiText(data) || "Sorry, I couldn't process that. Please try again.";
       const botResponse = cleanAiText(botResponseRaw);
@@ -2075,35 +2231,51 @@ const ChatbotComponent = () => {
       const recommendedProductIds = extractProductIdsFromText(botResponse);
       const productImagesMap = await fetchProductAndVariantImages(recommendedProductIds);
       const attachedImages = recommendedProductIds.flatMap((id) => (productImagesMap.get(id) ?? []).slice(0, 3));
-      
+
+      const tempBotId = `b_${Date.now().toString()}`;
       const botMessage = {
-        id: (Date.now() + 1).toString(),
+        id: tempBotId,
         text: botResponse,
-        sender: 'bot' as const,
+        sender: "bot" as const,
         timestamp: new Date(),
         images: attachedImages.length > 0 ? attachedImages : undefined,
-        imageUrl: attachedImages.length > 0 ? attachedImages[0] : undefined
+        imageUrl: attachedImages.length > 0 ? attachedImages[0] : undefined,
       };
-      
-      setMessages(prev => [...prev, botMessage]);
+
+      setMessages((prev) => [...prev, botMessage]);
+
+      const insertedBot = await persistMessage({
+        conversationId,
+        role: "bot",
+        content: botResponse,
+        images: attachedImages,
+      });
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempBotId ? { ...m, id: insertedBot.id, timestamp: new Date(insertedBot.created_at) } : m))
+      );
+      bumpConversationToTop(conversationId);
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.log('Request aborted');
-        return;
-      }
-      console.error('Error with chatbot:', error);
+      if (error?.name === "AbortError") return;
       const msg = error instanceof Error ? error.message : "Unknown error";
       const errorMessage = {
         id: (Date.now() + 1).toString(),
         text: `Sorry, I'm having a problem right now. (${msg})`,
-        sender: 'bot' as const,
-        timestamp: new Date()
+        sender: "bot" as const,
+        timestamp: new Date(),
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
     }
+  };
+
+  const handleSendMessage = async () => {
+    const text = inputMessage;
+    const imgs = uploadedImages.length > 0 ? [...uploadedImages] : [];
+    setInputMessage("");
+    setUploadedImages([]);
+    await sendMessageCore({ text, images: imgs });
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2138,229 +2310,217 @@ const ChatbotComponent = () => {
   };
 
   const clearChat = () => {
-    setMessages([
-      { id: '1', text: "Hi! I'm your AI assistant. You can talk to me in English, Hindi, ya Hinglish.", sender: 'bot', timestamp: new Date() }
-    ]);
+    setActiveConversationId(null);
+    setMessages([greetingMessage]);
     setUploadedImages([]);
   };
 
   const tellJoke = async () => {
-    if (isLoading) return;
-    
-    const jokeMessage = {
-      id: Date.now().toString(),
-      text: "Tell me a joke",
-      sender: 'user' as const,
-      timestamp: new Date()
-    };
-    
-    setMessages(prev => [...prev, jokeMessage]);
-    setIsLoading(true);
-
-    try {
-      const apiMessages = [
-        { role: 'system', content: 'You are a helpful assistant with a light, friendly sense of humor. Tell a short, clean joke. Reply in the same language as the user (English, Hindi, or Hinglish).', imageUrl: undefined },
-        ...messages.map(msg => ({
-          role: msg.sender === 'user' ? 'user' as const : 'assistant' as const,
-          content: msg.text,
-          images: msg.images || (msg.imageUrl ? [msg.imageUrl] : undefined)
-        })),
-        { role: 'user', content: 'Tell me a joke', imageUrl: undefined }
-      ];
-
-      const data = await callCustomerProfileAi({ messages: apiMessages, model: "gemini-3-flash-preview", temperature: 0.1, web_search: false });
-
-      const jokeResponseRaw = extractGeminiText(data) || "Why did the computer go to the doctor? Because it caught a virus.";
-      const jokeResponse = cleanAiText(jokeResponseRaw);
-      
-      const botMessage = {
-        id: (Date.now() + 1).toString(),
-        text: jokeResponse,
-        sender: 'bot' as const,
-        timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, botMessage]);
-    } catch (error) {
-      console.error('Error with chatbot joke:', error);
-      const msg = error instanceof Error ? error.message : "Unknown error";
-      const errorMessage = {
-        id: (Date.now() + 1).toString(),
-        text: `Sorry, I'm having trouble connecting right now. (${msg})`,
-        sender: 'bot' as const,
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
+    await sendMessageCore({ text: "Tell me a joke", webSearch: false });
   };
 
   return (
-    <div className="flex flex-col h-[500px] min-h-[400px]">
-      {/* Chat Header */}
-      <div 
-        className="flex justify-between items-center mb-4 pb-4"
-        style={{ borderBottom: '1px solid rgba(212, 175, 55, 0.2)' }}
+    <div className="flex flex-col md:flex-row h-[560px] min-h-[420px]">
+      <div
+        className="md:w-64 w-full md:pr-3 md:border-r border-b md:border-b-0 flex flex-col"
+        style={{
+          borderColor: "rgba(212, 175, 55, 0.2)",
+        }}
       >
-        <div>
-          <h3 className="gold-text text-lg font-semibold flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-400" /> AI Assistant
-          </h3>
-          <p className="text-gray-400 text-xs mt-1">English / Hindi / Hinglish</p>
-        </div>
-        <div className="flex gap-2">
+        <div className="flex items-center justify-between pb-3 mb-3" style={{ borderBottom: "1px solid rgba(212, 175, 55, 0.2)" }}>
+          <div className="min-w-0">
+            <div className="text-xs text-gray-400">Logged in</div>
+            <div className="text-sm text-white truncate">{userEmail ?? "—"}</div>
+          </div>
           <button
-            className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-1"
-            onClick={() => setWebSearchEnabled((v) => !v)}
-            disabled={isLoading}
             type="button"
-          >
-            Web {webSearchEnabled ? 'On' : 'Off'}
-          </button>
-          <button 
-            className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-1"
-            onClick={tellJoke}
-            disabled={isLoading}
-          >
-            Joke
-          </button>
-          <button 
-            className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-1"
             onClick={clearChat}
             disabled={isLoading}
+            className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs"
           >
-            Clear
+            New
           </button>
         </div>
+
+        <div className="flex-1 overflow-y-auto pr-1 royal-scrollbar">
+          {isLoadingConversations ? (
+            <div className="flex items-center gap-2 text-gray-400 text-sm py-3">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading chats...
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="text-gray-400 text-sm py-3">No chats yet</div>
+          ) : (
+            <div className="space-y-2">
+              {conversations.map((c) => {
+                const active = c.id === activeConversationId;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={async () => {
+                      setActiveConversationId(c.id);
+                      await loadConversationMessages(c.id);
+                    }}
+                    disabled={isLoading}
+                    className={cn(
+                      "w-full text-left rounded-lg px-3 py-2 transition-colors border",
+                      active ? "bg-amber-400/10 border-amber-400/30" : "bg-transparent border-amber-400/10 hover:bg-amber-400/5"
+                    )}
+                  >
+                    <div className="text-sm text-white truncate">{c.title || "New chat"}</div>
+                    <div className="text-[11px] text-gray-400">
+                      {new Date(c.updated_at || c.created_at).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
-      
-      {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2 royal-scrollbar">
-        {messages.map((message) => (
-          <div 
-            key={message.id} 
-            className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div 
-              className={cn(
-                "max-w-[80%] rounded-2xl px-4 py-3",
-                message.sender === 'user' 
-                  ? 'chat-message-user rounded-br-sm' 
-                  : 'chat-message-bot rounded-bl-sm text-white'
-              )}
-            >
-              <div className="markdown-content break-words">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {message.text}
-                </ReactMarkdown>
-              </div>
-              
-              {/* Display Images */}
-              {(message.images && message.images.length > 0) || message.imageUrl ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(message.images || [message.imageUrl]).map((img, idx) => (
-                    img && (
-                      <img 
-                        key={idx}
-                        src={img} 
-                        alt={`Uploaded ${idx + 1}`} 
-                        className="max-h-32 max-w-xs object-contain rounded border border-amber-400/20" 
-                      />
-                    )
-                  ))}
-                </div>
-              ) : null}
-              
-              <div className={cn(
-                "text-xs mt-2",
-                message.sender === 'user' ? 'text-amber-900/60' : 'text-gray-400'
-              )}>
-                {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </div>
-            </div>
+
+      <div className="flex-1 md:pl-4 pt-4 md:pt-0 flex flex-col min-w-0">
+        <div className="flex justify-between items-center mb-4 pb-4" style={{ borderBottom: "1px solid rgba(212, 175, 55, 0.2)" }}>
+          <div>
+            <h3 className="gold-text text-lg font-semibold flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-amber-400" /> AI Assistant
+            </h3>
+            <p className="text-gray-400 text-xs mt-1">English / Hindi / Hinglish</p>
           </div>
-        ))}
-        
-        {isLoading && (
-          <div className="flex justify-start items-center gap-3">
-            <div className="chat-message-bot rounded-2xl rounded-bl-sm px-4 py-3 max-w-[80%]">
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce"></div>
-                <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-              </div>
-            </div>
+          <div className="flex gap-2">
             <button
-              onClick={handleStopGeneration}
-              className="p-2 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
-              title="Stop generating"
+              className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-1"
+              onClick={() => setWebSearchEnabled((v) => !v)}
+              disabled={isLoading}
+              type="button"
             >
-              <StopCircle className="w-5 h-5" />
+              Web {webSearchEnabled ? "On" : "Off"}
+            </button>
+            <button className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-1" onClick={tellJoke} disabled={isLoading}>
+              Joke
+            </button>
+            <button className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-1" onClick={clearChat} disabled={isLoading}>
+              Clear
             </button>
           </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-      
-      {/* Image Preview */}
-      {uploadedImages.length > 0 && (
-        <div className="mb-3">
-          <span className="text-gray-400 text-sm mb-2 block">Attached ({uploadedImages.length}/5):</span>
-          <div className="flex gap-2 overflow-x-auto pb-2 royal-scrollbar">
-            {uploadedImages.map((img, idx) => (
-              <div key={idx} className="relative flex-shrink-0">
-                <img 
-                  src={img} 
-                  alt={`Preview ${idx + 1}`} 
-                  className="w-16 h-16 object-cover rounded-lg border border-amber-400/30" 
-                />
-                <button 
-                  type="button" 
-                  onClick={() => removeUploadedImage(idx)}
-                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 shadow-md"
-                >
-                  ×
-                </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2 royal-scrollbar min-w-0">
+          {isLoadingHistory ? (
+            <div className="flex items-center gap-2 text-gray-400 text-sm py-3">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading messages...
+            </div>
+          ) : null}
+          {messages.map((message) => (
+            <div key={message.id} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
+              <div
+                className={cn(
+                  "max-w-[80%] rounded-2xl px-4 py-3",
+                  message.sender === "user" ? "chat-message-user rounded-br-sm" : "chat-message-bot rounded-bl-sm text-white"
+                )}
+              >
+                <div className="markdown-content break-words">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+                </div>
+
+                {(message.images && message.images.length > 0) || message.imageUrl ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(message.images || [message.imageUrl]).map(
+                      (img, idx) =>
+                        img && (
+                          <img
+                            key={idx}
+                            src={img}
+                            alt={`Uploaded ${idx + 1}`}
+                            className="max-h-32 max-w-xs object-contain rounded border border-amber-400/20"
+                          />
+                        )
+                    )}
+                  </div>
+                ) : null}
+
+                <div className={cn("text-xs mt-2", message.sender === "user" ? "text-amber-900/60" : "text-gray-400")}>
+                  {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </div>
               </div>
-            ))}
+            </div>
+          ))}
+
+          {isLoading && (
+            <div className="flex justify-start items-center gap-3">
+              <div className="chat-message-bot rounded-2xl rounded-bl-sm px-4 py-3 max-w-[80%]">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce"></div>
+                  <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
+                  <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
+                </div>
+              </div>
+              <button
+                onClick={handleStopGeneration}
+                className="p-2 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+                title="Stop generating"
+              >
+                <StopCircle className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {uploadedImages.length > 0 && (
+          <div className="mb-3">
+            <span className="text-gray-400 text-sm mb-2 block">Attached ({uploadedImages.length}/5):</span>
+            <div className="flex gap-2 overflow-x-auto pb-2 royal-scrollbar">
+              {uploadedImages.map((img, idx) => (
+                <div key={idx} className="relative flex-shrink-0">
+                  <img src={img} alt={`Preview ${idx + 1}`} className="w-16 h-16 object-cover rounded-lg border border-amber-400/30" />
+                  <button
+                    type="button"
+                    onClick={() => removeUploadedImage(idx)}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 shadow-md"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-      
-      {/* Input Area */}
-      <div className="flex gap-2 flex-wrap">
-        <div className="flex-1 flex gap-2 flex-wrap">
-          <input
-            type="text"
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            placeholder="Type your message..."
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            disabled={isLoading}
-            className="royal-input flex-1 px-4 py-3 rounded-lg min-w-[150px]"
-          />
-          <button 
-            type="button"
-            disabled={isLoading || uploadedImages.length >= 5}
-            className={`royal-btn-outline h-12 w-12 rounded-lg flex items-center justify-center ${uploadedImages.length >= 5 ? 'opacity-50 cursor-not-allowed' : ''}`}
-            onClick={() => document.getElementById('chatbot-image-upload')?.click()}
-          >
-            <Camera className="w-5 h-5" />
-          </button>
-          <input
-            id="chatbot-image-upload"
-            type="file"
-            multiple
-            accept="image/*"
-            onChange={handleImageUpload}
-            className="hidden"
-            disabled={isLoading || uploadedImages.length >= 5}
-          />
-        </div>
+        )}
+
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex-1 flex gap-2 flex-wrap">
+            <input
+              type="text"
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              placeholder="Type your message..."
+              onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+              disabled={isLoading || isLoadingHistory}
+              className="royal-input flex-1 px-4 py-3 rounded-lg min-w-[150px]"
+            />
+            <button
+              type="button"
+              disabled={isLoading || uploadedImages.length >= 5 || isLoadingHistory}
+              className={`royal-btn-outline h-12 w-12 rounded-lg flex items-center justify-center ${uploadedImages.length >= 5 ? "opacity-50 cursor-not-allowed" : ""}`}
+              onClick={() => document.getElementById("chatbot-image-upload")?.click()}
+            >
+              <Camera className="w-5 h-5" />
+            </button>
+            <input
+              id="chatbot-image-upload"
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="hidden"
+              disabled={isLoading || uploadedImages.length >= 5 || isLoadingHistory}
+            />
+          </div>
         <button 
           onClick={handleSendMessage} 
-          disabled={(!inputMessage.trim() && uploadedImages.length === 0) || isLoading}
+          disabled={(!inputMessage.trim() && uploadedImages.length === 0) || isLoading || isLoadingHistory}
           className="royal-btn px-4 py-3 rounded-lg min-w-[80px] flex items-center justify-center gap-2 flex-shrink-0"
         >
           {isLoading ? (
@@ -2370,6 +2530,7 @@ const ChatbotComponent = () => {
           )}
         </button>
       </div>
+    </div>
     </div>
   );
 };
