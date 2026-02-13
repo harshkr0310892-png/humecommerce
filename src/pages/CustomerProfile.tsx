@@ -2319,6 +2319,46 @@ const ChatbotComponent = () => {
     await sendMessageCore({ text: "Tell me a joke", webSearch: false });
   };
 
+  const renameConversation = async (convId: string) => {
+    const current = conversations.find((c) => c.id === convId)?.title || "New chat";
+    const nextTitleRaw = window.prompt("Rename chat", current);
+    const nextTitle = (nextTitleRaw ?? "").trim();
+    if (!nextTitle) return;
+    try {
+      const { error } = await (supabase.from("ai_conversations" as any) as any).update({ title: nextTitle }).eq("id", convId);
+      if (error) throw error;
+      setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title: nextTitle } : c)));
+      toast.success("Chat renamed");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to rename chat";
+      toast.error(msg);
+    }
+  };
+
+  const deleteConversation = async (convId: string) => {
+    const ok = window.confirm("Delete this chat? This will remove all messages.");
+    if (!ok) return;
+    try {
+      const { error } = await (supabase.from("ai_conversations" as any) as any).delete().eq("id", convId);
+      if (error) throw error;
+      const remaining = conversations.filter((c) => c.id !== convId);
+      setConversations(remaining);
+      if (activeConversationId === convId) {
+        const nextId = remaining[0]?.id ?? null;
+        setActiveConversationId(nextId);
+        if (nextId) {
+          await loadConversationMessages(nextId);
+        } else {
+          setMessages([greetingMessage]);
+        }
+      }
+      toast.success("Chat deleted");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to delete chat";
+      toast.error(msg);
+    }
+  };
+
   return (
     <div className="flex flex-col md:flex-row h-[560px] min-h-[420px]">
       <div
@@ -2355,24 +2395,57 @@ const ChatbotComponent = () => {
               {conversations.map((c) => {
                 const active = c.id === activeConversationId;
                 return (
-                  <button
+                  <div
                     key={c.id}
-                    type="button"
-                    onClick={async () => {
-                      setActiveConversationId(c.id);
-                      await loadConversationMessages(c.id);
-                    }}
-                    disabled={isLoading}
                     className={cn(
-                      "w-full text-left rounded-lg px-3 py-2 transition-colors border",
+                      "w-full flex items-start gap-2 rounded-lg px-3 py-2 transition-colors border",
                       active ? "bg-amber-400/10 border-amber-400/30" : "bg-transparent border-amber-400/10 hover:bg-amber-400/5"
                     )}
                   >
-                    <div className="text-sm text-white truncate">{c.title || "New chat"}</div>
-                    <div className="text-[11px] text-gray-400">
-                      {new Date(c.updated_at || c.created_at).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setActiveConversationId(c.id);
+                        await loadConversationMessages(c.id);
+                      }}
+                      disabled={isLoading}
+                      className="flex-1 min-w-0 text-left"
+                    >
+                      <div className="text-sm text-white truncate">{c.title || "New chat"}</div>
+                      <div className="text-[11px] text-gray-400">
+                        {new Date(c.updated_at || c.created_at).toLocaleString([], {
+                          month: "short",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        renameConversation(c.id);
+                      }}
+                      disabled={isLoading}
+                      className="p-1 rounded-md text-amber-200/70 hover:text-amber-200 hover:bg-amber-400/10"
+                      title="Rename"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await deleteConversation(c.id);
+                      }}
+                      disabled={isLoading}
+                      className="p-1 rounded-md text-red-300/70 hover:text-red-200 hover:bg-red-500/10"
+                      title="Delete"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 );
               })}
             </div>
