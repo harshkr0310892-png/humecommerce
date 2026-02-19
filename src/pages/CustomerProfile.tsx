@@ -19,8 +19,9 @@ import { toast } from "sonner";
 import { 
   Crown, Home, Loader2, User, Phone, MapPin, Package, 
   Clock, CheckCircle, Truck, XCircle, LogOut, Camera,
-  Edit2, Save, X, ChevronDown, ChevronUp, Sparkles, Shield, Star, Heart, Copy, StopCircle, Menu, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Volume2, VolumeX
+  Edit2, Save, X, ChevronDown, ChevronUp, Sparkles, Shield, Star, Heart, Copy, StopCircle, Menu, PanelLeftClose, PanelLeftOpen, Mic, MicOff, Volume2, VolumeX, FileText
 } from "lucide-react";
+import { generateInvoice } from "@/utils/invoiceGenerator";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn, normalizeIndianMobile } from "@/lib/utils";
@@ -1728,13 +1729,24 @@ export default function CustomerProfile() {
                                         </span>
                                       )}
                                     </div>
-                                    <p className="text-gray-400 text-sm">
-                                      {new Date(order.created_at).toLocaleDateString('en-IN', {
-                                        year: 'numeric',
-                                        month: 'long',
-                                        day: 'numeric',
-                                      })}
-                                    </p>
+                                    <div className="text-gray-400 text-sm">
+                                      <p>
+                                        Ordered: {new Date(order.created_at).toLocaleDateString('en-IN', {
+                                          year: 'numeric',
+                                          month: 'long',
+                                          day: 'numeric',
+                                        })}
+                                      </p>
+                                      {order.status === 'delivered' && order.updated_at && (
+                                        <p className="text-green-400/80 text-xs mt-1">
+                                          Delivered {(() => {
+                                            const diff = Date.now() - new Date(order.updated_at).getTime();
+                                            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                                            return days === 0 ? 'Today' : days === 1 ? '1 day ago' : `${days} days ago`;
+                                          })()}
+                                        </p>
+                                      )}
+                                    </div>
                                   </div>
 
                                   <div className="flex flex-col md:items-end gap-3">
@@ -1749,6 +1761,18 @@ export default function CustomerProfile() {
                                       >
                                         Track Order
                                       </button>
+
+                                      {order.status === 'delivered' && (
+                                        <button
+                                          className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-2"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            generateInvoice(order as any, order.items as any || [], {});
+                                          }}
+                                        >
+                                          <FileText className="w-3 h-3" /> Invoice
+                                        </button>
+                                      )}
 
                                       {order.status === 'delivered' && !order.return_status && (
                                         <ReturnOrderButton 
@@ -2011,6 +2035,21 @@ export default function CustomerProfile() {
                                   </div>
                                 )}
                                 
+                                {orders.find(o => o.id === ret.order_id) && (
+                                  <div className="mt-4">
+                                    <button
+                                      className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-2"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const linkedOrder = orders.find(o => o.id === ret.order_id);
+                                        if (linkedOrder) generateInvoice(linkedOrder as any, linkedOrder.items as any || [], {});
+                                      }}
+                                    >
+                                      <FileText className="w-3 h-3" /> View Invoice
+                                    </button>
+                                  </div>
+                                )}
+
                                 {/* Return Images */}
                                 {ret.images && ret.images.length > 0 && (
                                   <div className="mt-4">
@@ -3472,6 +3511,27 @@ const ReturnOrderButton = ({ order, profile, onReturnRequest }: { order: Order, 
                   </div>
                 )}
                 
+                <div className="mb-4 p-3 rounded-lg border border-amber-400/20 bg-amber-400/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-amber-400/10 flex items-center justify-center text-amber-400">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-200">Invoice Attached</p>
+                      <p className="text-xs text-gray-400">Order invoice will be included automatically</p>
+                    </div>
+                  </div>
+                  <button 
+                    className="text-amber-400 text-xs hover:underline"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      generateInvoice(order as any, order.items as any || [], {});
+                    }}
+                  >
+                    View
+                  </button>
+                </div>
+
                 <div>
                   <Label className="text-amber-400/80 text-sm mb-2 block">
                     Upload Images (minimum 2, maximum 6)

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Search, Crown, Package, Truck, CheckCircle, Clock, Loader2, XCircle, MessageCircle, FileText, Download, AlertCircle } from "lucide-react";
 import { cn, normalizeIndianMobile } from "@/lib/utils";
 import { useCustomerAuth } from "@/hooks/useCustomerAuth";
+import { generateInvoice } from "@/utils/invoiceGenerator";
 
 import {
   Dialog,
@@ -690,7 +691,7 @@ export default function TrackOrder() {
                         <Button 
                           variant="outline" 
                           size="sm" 
-                          onClick={generateInvoice}
+                          onClick={handleGenerateInvoice}
                           disabled={generatingInvoice}
                           className="flex items-center gap-2"
                         >
