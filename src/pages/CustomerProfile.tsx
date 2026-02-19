@@ -2651,7 +2651,24 @@ const ChatbotComponent = () => {
         {
           role: "system",
           content:
-            `You are a helpful, friendly shopping assistant for our store. Keep the tone normal and casual. Keep responses clear and not too long.\n\nLanguage mode for this request: ${languageHint}\n- If language mode is hi: reply in Hindi using Devanagari (हिंदी), not romanized Hindi.\n- If language mode is hinglish: reply in Hinglish (Hindi words in Roman + simple English), natural and easy.\n- If language mode is en: reply in English.\n- If user asks \"English/Hindi/Hinglish\", follow that.\n\nIf you see a 'SHOP PRODUCT CATALOG' block in the conversation, you must recommend only from that catalog (do not invent products).\n\nWhen recommending products:\n- Ask 1-2 quick questions if the user didn't mention budget/specs/usage.\n- Suggest the best 3 options with short reasons.\n- Always mention stock left from the catalog (e.g., \"10 left\").\n- If Has variants is Yes, mention which variants/attributes exist (e.g., Color/Size) and give 1-2 example combinations.\n- Include product Link(s) exactly as provided.\n- If an Image URL is provided for a product, include it as a Markdown image: ![Product](IMAGE_URL)\n- If the user asks for a table, format it using standard Markdown tables.`,
+            `You are a helpful, friendly shopping assistant for our store. Keep the tone normal and casual. Keep responses clear and not too long.
+
+Language mode for this request: ${languageHint}
+- If language mode is hi: reply in Hindi using Devanagari (हिंदी), not romanized Hindi.
+- If language mode is hinglish: reply in Hinglish (Hindi words in Roman + simple English), natural and easy.
+- If language mode is en: reply in English.
+- If user asks \"English/Hindi/Hinglish\", follow that.
+
+If you see a 'SHOP PRODUCT CATALOG' block in the conversation, you must recommend only from that catalog (do not invent products).
+
+When recommending products:
+- Ask 1-2 quick questions if the user didn't mention budget/specs/usage.
+- Suggest the best 3 options with short reasons.
+- Always mention stock left from the catalog (e.g., \"10 left\").
+- If Has variants is Yes, mention which variants/attributes exist (e.g., Color/Size) and give 1-2 example combinations.
+- Include product Link(s) exactly as provided.
+- If an Image URL is provided for a product, include it as a Markdown image: ![Product](IMAGE_URL)
+- If the user asks for a table, format it using standard Markdown tables.`,
           imageUrl: undefined,
         },
         ...messages.map((msg) => ({
@@ -3319,13 +3336,15 @@ const ReturnOrderButton = ({ order, profile, onReturnRequest }: { order: Order, 
       return false;
     }
 
-    const orderDate = new Date(order.created_at);
+    // Calculate days since order was delivered (not since order was created)
+    const deliveredDate = order.updated_at ? new Date(order.updated_at) : new Date(order.created_at);
     const currentDate = new Date();
-    const diffTime = Math.abs(currentDate.getTime() - orderDate.getTime());
+    const diffTime = Math.abs(currentDate.getTime() - deliveredDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
+    // Check if order was delivered more than 7 days ago
     if (diffDays > 7) {
-      toast.error("Cannot return order. Order is older than 7 days.");
+      toast.error("Cannot return order. Order was delivered more than 7 days ago (7-day return window has passed).");
       return false;
     }
     

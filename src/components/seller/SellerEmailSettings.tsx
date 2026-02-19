@@ -73,11 +73,9 @@ export const SellerEmailSettings = ({ sellerId }: SellerEmailSettingsProps) => {
         throw new Error("Maximum of 5 notification emails allowed");
       }
 
-      const { error } = await supabase.rpc('add_seller_notification_email', {
-        p_seller_id: sellerId,
-        p_email: email,
-        p_is_primary: emails.length === 0  // Make first email primary
-      });
+      const { error } = await supabase
+        .from("seller_notification_emails")
+        .insert([{ seller_id: sellerId, email, is_primary: emails.length === 0 }]); // Make first email primary
 
       if (error) throw error;
     },
@@ -107,11 +105,10 @@ export const SellerEmailSettings = ({ sellerId }: SellerEmailSettingsProps) => {
         throw new Error("This email is already added");
       }
 
-      const { error } = await supabase.rpc('update_seller_notification_email', {
-        p_id: id,
-        p_email: email,
-        p_is_primary: is_primary
-      });
+      const { error } = await supabase
+        .from("seller_notification_emails")
+        .update({ email, is_primary })
+        .eq("id", id);
 
       if (error) throw error;
     },
@@ -128,9 +125,10 @@ export const SellerEmailSettings = ({ sellerId }: SellerEmailSettingsProps) => {
 
   const deleteEmailMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.rpc('delete_seller_notification_email', {
-        p_id: id
-      });
+      const { error } = await supabase
+        .from("seller_notification_emails")
+        .delete()
+        .eq("id", id);
 
       if (error) throw error;
     },
@@ -151,12 +149,17 @@ export const SellerEmailSettings = ({ sellerId }: SellerEmailSettingsProps) => {
         throw new Error('Email record not found');
       }
       
-      // Update the email with the new primary status
-      const { error } = await supabase.rpc('update_seller_notification_email', {
-        p_id: id,
-        p_email: emailRecord.email,
-        p_is_primary: true
-      });
+      // First, unmark all emails as primary for this seller
+      await supabase
+        .from("seller_notification_emails")
+        .update({ is_primary: false })
+        .eq("seller_id", sellerId);
+
+      // Then mark the selected email as primary
+      const { error } = await supabase
+        .from("seller_notification_emails")
+        .update({ is_primary: true })
+        .eq("id", id);
 
       if (error) throw error;
     },
