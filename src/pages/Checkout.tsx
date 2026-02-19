@@ -53,6 +53,7 @@ export default function Checkout() {
   const [agreePolicies, setAgreePolicies] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
   const [clientIP, setClientIP] = useState<string>('');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [variantImages, setVariantImages] = useState<Record<string, string[]>>({});
 
   const variantIds = useMemo(() => {
@@ -292,12 +293,14 @@ export default function Checkout() {
     React.useEffect(() => {
       const loadCustomerProfile = async () => {
         const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          // If customer is logged in, try to load their profile to pre-fill form
+        const user = session?.user;
+        setIsLoggedIn(!!user);
+
+        if (user) {
           const { data: profile, error } = await supabase
             .from('customer_profiles')
             .select('full_name, phone, address, user_id')
-            .eq('user_id', session.user.id)
+            .eq('user_id', user.id)
             .maybeSingle();
           
           if (!error && profile) {
@@ -306,7 +309,12 @@ export default function Checkout() {
               name: profile.full_name || prev.name,
               phone: profile.phone || prev.phone,
               address: profile.address || prev.address,
-              email: session.user.email || prev.email,
+              email: user.email || prev.email,
+            }));
+          } else if (user.email) {
+            setFormData(prev => ({
+              ...prev,
+              email: user.email || prev.email,
             }));
           }
         }
@@ -1472,6 +1480,7 @@ export default function Checkout() {
                       placeholder="e.g., 9876543210 (10 digits, starting with 6-9)"
                       required
                       className="mt-1 checkout-input"
+                      readOnly={isLoggedIn}
                     />
                   </div>
 
@@ -1484,6 +1493,7 @@ export default function Checkout() {
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       placeholder="Enter your email address"
                       className="mt-1 checkout-input"
+                      readOnly={isLoggedIn}
                     />
                   </div>
 

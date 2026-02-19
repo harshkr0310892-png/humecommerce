@@ -36,11 +36,40 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
   useEffect(() => {
     let cancelled = false;
 
-    supabase.auth.getSession().then(({ data }) => {
+    const initAuthAndProfile = async () => {
+      const { data } = await supabase.auth.getSession();
       if (cancelled) return;
-      setIsLoggedIn(!!data.session);
+
+      const session = data.session;
+      setIsLoggedIn(!!session);
       setAuthReady(true);
-    });
+
+      if (session?.user) {
+        const { data: profile, error } = await supabase
+          .from("customer_profiles")
+          .select("full_name, phone")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
+
+        if (cancelled) return;
+
+        if (!error && profile) {
+          setFormData(prev => ({
+            ...prev,
+            name: profile.full_name || prev.name,
+            email: session.user.email || prev.email,
+            phone: profile.phone || prev.phone,
+          }));
+        } else {
+          setFormData(prev => ({
+            ...prev,
+            email: session.user.email || prev.email,
+          }));
+        }
+      }
+    };
+
+    initAuthAndProfile();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsLoggedIn(!!session);
@@ -430,6 +459,7 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             placeholder="Enter your full name"
             className={errors.name ? "border-destructive" : ""}
+            readOnly={isLoggedIn}
           />
           {errors.name && <p className="text-destructive text-sm mt-1">{errors.name}</p>}
         </div>
@@ -444,6 +474,7 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               placeholder="your.email@example.com"
               className={errors.email ? "border-destructive" : ""}
+              readOnly={isLoggedIn}
             />
             {errors.email && <p className="text-destructive text-sm mt-1">{errors.email}</p>}
           </div>
@@ -457,6 +488,7 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
               placeholder="e.g., 9876543210 (10 digits, starting with 6-9)"
               className={errors.phone ? "border-destructive" : ""}
+              readOnly={isLoggedIn}
             />
             {errors.phone && <p className="text-destructive text-sm mt-1">{errors.phone}</p>}
           </div>
