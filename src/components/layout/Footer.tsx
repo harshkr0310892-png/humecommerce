@@ -29,6 +29,12 @@ export const Footer = () => {
       return;
     }
     
+    const isBanned = await checkIsBanned(email);
+    if (isBanned) {
+      toast.error("You are banned");
+      return;
+    }
+
     setIsSubscribing(true);
     try {
       const { error } = await supabase

@@ -425,6 +425,10 @@ export default function ProductDetail() {
 
   const submitReview = async () => {
     if (!id) return;
+    if (isBanned) {
+      toast.error("You are banned");
+      return;
+    }
     setSubmittingReview(true);
     let createdReviewId: string | null = null;
     const uploadedPaths: string[] = [];
@@ -670,6 +674,10 @@ export default function ProductDetail() {
 
   const handleShare = async () => {
     if (!product) return;
+    if (isBanned) {
+      toast.error("You are banned");
+      return;
+    }
     
     const productUrl = `${window.location.origin}/product/${id}`;
     

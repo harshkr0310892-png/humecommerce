@@ -153,6 +153,10 @@ export default function Wishlist() {
   };
 
   const handleAddToCart = async (item: any) => {
+    if (isBanned) {
+      toast.error("You are banned");
+      return;
+    }
     const u = unavailable[item.id];
     if (u?.product) {
       toast.error("This product is unavailable.");

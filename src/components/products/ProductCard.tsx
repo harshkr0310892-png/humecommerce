@@ -37,6 +37,7 @@ export function ProductCard({
   const navigate = useNavigate();
   const { addItem } = useCartStore();
   const { addItem: addToWishlist, isInWishlist, removeItem: removeFromWishlist, clearNewItemFlag } = useWishlistStore();
+  const { isBanned } = useBanCheck();
   const discountedPrice = price * (1 - discount_percentage / 100);
   const isSoldOut = stock_status === 'sold_out';
   const isLowStock = stock_status === 'low_stock';
@@ -161,6 +162,11 @@ export function ProductCard({
     e.preventDefault();
     e.stopPropagation();
     
+    if (isBanned) {
+      toast.error("You are banned");
+      return;
+    }
+
     // Check authentication
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
@@ -204,6 +210,11 @@ export function ProductCard({
     e.preventDefault();
     e.stopPropagation();
     
+    if (isBanned) {
+      toast.error("You are banned");
+      return;
+    }
+
     const productUrl = `${window.location.origin}/product/${id}`;
     
     if (navigator.share) {

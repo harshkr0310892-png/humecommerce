@@ -26,6 +26,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn, normalizeIndianMobile } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useBanCheck } from "@/hooks/useBanCheck";
 
 // Royal Premium Styles
 const royalStyles = `
@@ -501,6 +502,7 @@ const statusConfig: Record<string, { icon: React.ReactNode; color: string; label
 
 export default function CustomerProfile() {
   const navigate = useNavigate();
+  const { isBanned } = useBanCheck();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1621,6 +1623,13 @@ export default function CustomerProfile() {
                       </div>
                     </div>
 
+                    {isBanned ? (
+                      <div className="royal-card p-8 text-center border-red-500/30">
+                        <h3 className="text-2xl font-bold text-red-500 mb-2">Account Restricted</h3>
+                        <p className="text-gray-400">You are banned</p>
+                      </div>
+                    ) : (
+                      <>
                     <div className="royal-card rounded-xl p-6 mb-6">
                       <div className="flex items-center gap-3 mb-4">
                         <XCircle className="w-5 h-5 text-red-400" />
@@ -1695,6 +1704,7 @@ export default function CustomerProfile() {
                                         <span className="gold-text font-semibold text-lg">
                                           {order.order_id}
                                         </span>
+
                                         <button
                                           type="button"
                                           className="text-amber-400/60 hover:text-amber-400 transition-colors p-1.5 rounded-md hover:bg-amber-400/10"
@@ -1950,6 +1960,8 @@ export default function CustomerProfile() {
                         })}
                       </div>
                     )}
+                    </>
+                    )}
                   </div>
                 )}
 
@@ -2108,11 +2120,21 @@ export default function CustomerProfile() {
 }
 
 // Chatbot Component with Royal Theme
+import { useBanCheck } from "@/hooks/useBanCheck";
+
 const ChatbotComponent = () => {
-  const greetingMessage = { id: "1", text: "Hi! I'm your AI assistant. You can talk to me in English, Hindi, ya Hinglish.", sender: "bot" as const, timestamp: new Date() };
+  const { isBanned } = useBanCheck();
+  const greetingMessage = { id: "1", text: isBanned ? "You are banned" : "Hi! I'm your AI assistant. You can talk to me in English, Hindi, ya Hinglish.", sender: "bot" as const, timestamp: new Date() };
   const [messages, setMessages] = useState<Array<{id: string; text: string; sender: 'user' | 'bot'; timestamp: Date; imageUrl?: string; images?: string[]}>>([
     greetingMessage
   ]);
+  
+  // Effect to update message if ban status changes loaded
+  useEffect(() => {
+    if (isBanned) {
+      setMessages([{ id: "ban-msg", text: "You are banned", sender: "bot", timestamp: new Date() }]);
+    }
+  }, [isBanned]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);

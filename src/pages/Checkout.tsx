@@ -485,6 +485,11 @@ export default function Checkout() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (isBanned) {
+      toast.error("You are banned");
+      return;
+    }
+
     // Ensure all steps are completed before placing order
     if (checkoutStep === 1) {
       if (validateDeliveryStep()) setCheckoutStep(2);

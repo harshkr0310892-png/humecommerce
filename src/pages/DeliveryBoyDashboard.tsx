@@ -97,6 +97,18 @@ export default function DeliveryBoyDashboard() {
   // Update order status
   const updateOrderStatus = async (orderId: string, status: string) => {
     try {
+      // Check if order is already cancelled
+      const { data: currentOrder } = await supabase
+        .from('orders')
+        .select('status')
+        .eq('id', orderId)
+        .single();
+        
+      if (currentOrder?.status === 'cancelled') {
+        toast.error('Cannot modify status of a cancelled order');
+        return;
+      }
+
       const { error } = await supabase
         .from('orders')
         .update({ status })
@@ -171,6 +183,13 @@ export default function DeliveryBoyDashboard() {
   // Send message
   const sendMessage = async () => {
     if (!newMessage.trim() || !selectedOrder) return;
+    
+    // Check if order is cancelled
+    if (selectedOrder.status === 'cancelled') {
+      toast.error("Cannot send message for a cancelled order");
+      return;
+    }
+
     setSendingMessage(true);
 
     try {

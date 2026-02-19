@@ -40,6 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useMemo, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { checkIsBanned } from "@/hooks/useBanCheck";
 
 const iconMap: Record<string, ElementType> = {
   crown: Crown,
@@ -239,6 +240,12 @@ export default function Index() {
       return;
     }
     
+    const isBanned = await checkIsBanned(email);
+    if (isBanned) {
+      toast.error("You are banned");
+      return;
+    }
+
     setIsSubscribing(true);
     try {
       const { error } = await supabase

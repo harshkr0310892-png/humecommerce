@@ -209,6 +209,11 @@ export default function SellerDashboard() {
   const [orderMessages, setOrderMessages] = useState<Record<string, OrderMessage[]>>({});
   const [newSellerMessage, setNewSellerMessage] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  
+  // Order cancellation state
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
+  const [cancelOrderIdInput, setCancelOrderIdInput] = useState("");
 
   const parseVariantInfoValue = (value: any): any | null => {
     if (!value) return null;
@@ -348,6 +353,13 @@ export default function SellerDashboard() {
 
   const sendSellerMessage = async () => {
     if (!newSellerMessage.trim() || !selectedOrder) return;
+    
+    // Check if order is cancelled
+    if (selectedOrder.status === 'cancelled') {
+      toast.error("Cannot send message for a cancelled order");
+      return;
+    }
+
     setSendingMessage(true);
     try {
       const { error } = await supabase
@@ -1680,6 +1692,36 @@ export default function SellerDashboard() {
       toast.error(`Failed to delete product: ${error instanceof Error ? error.message : "Unknown error"}`);
     },
   });
+
+  const handleStatusChange = (order: Order, newStatus: string) => {
+    if (order.status === 'cancelled') {
+      toast.error("Cannot modify status of a cancelled order");
+      return;
+    }
+    
+    if (newStatus === 'cancelled') {
+      setOrderToCancel(order);
+      setCancelOrderIdInput("");
+      setCancelDialogOpen(true);
+      return;
+    }
+    
+    updateOrderMutation.mutate({ id: order.id, status: newStatus });
+  };
+
+  const confirmCancellation = () => {
+    if (!orderToCancel) return;
+    
+    if (cancelOrderIdInput !== orderToCancel.order_id) {
+      toast.error("Order ID does not match");
+      return;
+    }
+    
+    updateOrderMutation.mutate({ id: orderToCancel.id, status: 'cancelled' });
+    setCancelDialogOpen(false);
+    setOrderToCancel(null);
+    setCancelOrderIdInput("");
+  };
 
   if (!isSellerLoggedIn) {
     return (
@@ -3083,7 +3125,7 @@ export default function SellerDashboard() {
                               <p className="text-sm text-muted-foreground mb-1">Status</p>
                               <Select
                                 value={order.status}
-                                onValueChange={(value) => updateOrderMutation.mutate({ id: order.id, status: value })}
+                                onValueChange={(value) => handleStatusChange(order, value)}
                               >
                                 <SelectTrigger className="w-40">
                                   <SelectValue />
@@ -3483,6 +3525,34 @@ export default function SellerDashboard() {
           onClose={() => setPhotoViewerOpen(false)}
         />
       )}
+
+      {/* Cancellation Dialog */}
+      <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Cancellation</DialogTitle>
+            <DialogDescription>
+              To cancel this order, please enter the Order ID: <strong>{orderToCancel?.order_id}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label>Order ID</Label>
+              <Input
+                value={cancelOrderIdInput}
+                onChange={(e) => setCancelOrderIdInput(e.target.value)}
+                placeholder="Enter Order ID to confirm"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setCancelDialogOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={confirmCancellation} disabled={!cancelOrderIdInput}>
+                Confirm Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

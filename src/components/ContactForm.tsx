@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Loader2, X, Upload, ChevronLeft, ChevronRight } from "lucide-react";
 import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js';
 import { normalizeIndianMobile } from "@/lib/utils";
+import { checkIsBanned } from "@/hooks/useBanCheck";
 
 interface ContactFormProps {
   className?: string;
@@ -373,10 +374,10 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
     
     try {
       // Check if user is banned
-      const isBanned = await checkIfBanned(formData.email, formData.phone);
+      const isBanned = await checkIsBanned(formData.email, formData.phone);
       
       if (isBanned) {
-        toast.error("You are not allowed to submit this form");
+        toast.error("You are banned");
         setIsSubmitting(false);
         return;
       }
