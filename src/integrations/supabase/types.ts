@@ -1016,6 +1016,7 @@ export type Database = {
           user_id: string
           full_name: string | null
           phone: string | null
+          phone_verified_at: string | null
           address: string | null
           avatar_url: string | null
           created_at: string
@@ -1026,6 +1027,7 @@ export type Database = {
           user_id: string
           full_name?: string | null
           phone?: string | null
+          phone_verified_at?: string | null
           address?: string | null
           avatar_url?: string | null
           created_at?: string
@@ -1036,6 +1038,7 @@ export type Database = {
           user_id?: string
           full_name?: string | null
           phone?: string | null
+          phone_verified_at?: string | null
           address?: string | null
           avatar_url?: string | null
           created_at?: string

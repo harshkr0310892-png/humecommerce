@@ -497,6 +497,38 @@ export default function Checkout() {
       return;
     }
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      toast.error("Please login / create account to place order.");
+      navigate(`/auth?redirect=${encodeURIComponent("/checkout")}`);
+      return;
+    }
+
+    try {
+      const formattedPhone = `+91${normalizedPhone}`;
+      const { data: customerProfile, error: profileError } = await supabase
+        .from("customer_profiles")
+        .select("phone, phone_verified_at")
+        .eq("user_id", sessionData.session.user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      const profilePhoneRaw = customerProfile?.phone ?? "";
+      const profileNormalized = normalizeIndianMobile(profilePhoneRaw || "") || "";
+      const currentNormalized = normalizeIndianMobile(formattedPhone) || normalizedPhone;
+
+      if (!customerProfile?.phone_verified_at || profileNormalized !== currentNormalized) {
+        toast.error("Please verify your phone number before placing an order.");
+        navigate("/profile");
+        return;
+      }
+    } catch (e) {
+      toast.error("Please verify your phone number before placing an order.");
+      navigate("/profile");
+      return;
+    }
+
     // Check if user is banned
     try {
       // Normalize phone number for comparison
@@ -814,9 +846,6 @@ export default function Checkout() {
 
     try {
       const newOrderId = generateOrderId();
-
-      // Get current user session to get user_id if authenticated
-      const { data: { session } } = await supabase.auth.getSession();
       
       // Create order
       const { data: order, error: orderError } = await supabase
@@ -835,7 +864,7 @@ export default function Checkout() {
           total: total,
           status: 'pending',
           payment_method: paymentMethod,
-          user_id: session?.user?.id || null, // Link order to authenticated user
+          user_id: sessionData.session.user.id,
         })
         .select()
         .single();

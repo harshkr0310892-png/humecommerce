@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Loader2, X, Upload, ChevronLeft, ChevronRight } from "lucide-react";
 import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js';
+import { normalizeIndianMobile } from "@/lib/utils";
 
 interface ContactFormProps {
   className?: string;
@@ -309,6 +310,33 @@ export const ContactForm = ({ className = "" }: ContactFormProps) => {
     }
     
     if (!validateForm()) {
+      return;
+    }
+
+    const normalized = normalizeIndianMobile(formData.phone);
+    if (!normalized) {
+      toast.error("Please enter a valid Indian mobile number.");
+      return;
+    }
+
+    try {
+      const formattedPhone = `+91${normalized}`;
+      const { data: customerProfile, error: profileError } = await supabase
+        .from("customer_profiles")
+        .select("phone, phone_verified_at")
+        .eq("user_id", sessionData.session.user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      if (!customerProfile?.phone_verified_at || customerProfile.phone !== formattedPhone) {
+        toast.error("Please verify your phone number before sending this form.");
+        window.location.href = "/profile";
+        return;
+      }
+    } catch {
+      toast.error("Please verify your phone number before sending this form.");
+      window.location.href = "/profile";
       return;
     }
     

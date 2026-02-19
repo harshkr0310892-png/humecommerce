@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { cn } from "@/lib/utils";
+import { cn, normalizeIndianMobile } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Royal Premium Styles
@@ -450,6 +450,7 @@ interface CustomerProfile {
   user_id: string;
   full_name: string | null;
   phone: string | null;
+  phone_verified_at: string | null;
   address: string | null;
   avatar_url: string | null;
 }
@@ -519,6 +520,11 @@ export default function CustomerProfile() {
     phone: '',
     address: '',
   });
+  const [phoneVerifyOpen, setPhoneVerifyOpen] = useState(false);
+  const [phoneOtp, setPhoneOtp] = useState("");
+  const [phoneOtpLoading, setPhoneOtpLoading] = useState(false);
+  const [phoneOtpStep, setPhoneOtpStep] = useState<"request" | "verify">("request");
+  const [nextPhoneResendAt, setNextPhoneResendAt] = useState<number | null>(null);
 
   useEffect(() => {
     checkAuthAndLoadData();
@@ -547,6 +553,76 @@ export default function CustomerProfile() {
       } catch {
         toast.error('Failed to copy');
       }
+    }
+  };
+
+  const openPhoneVerify = () => {
+    setPhoneOtp("");
+    setPhoneOtpStep("request");
+    setNextPhoneResendAt(null);
+    setPhoneVerifyOpen(true);
+  };
+
+  const requestPhoneOtp = async (action: "request" | "resend") => {
+    if (action === "resend" && nextPhoneResendAt && Date.now() < nextPhoneResendAt) {
+      toast.error("Please wait before resending OTP.");
+      return;
+    }
+
+    const normalized = normalizeIndianMobile(editForm.phone || profile?.phone || "");
+    if (!normalized) {
+      toast.error("Please enter a valid Indian mobile number.");
+      return;
+    }
+
+    setPhoneOtpLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("phone-otp", {
+        body: { action, phone: `+91${normalized}` },
+      });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      setPhoneOtpStep("verify");
+      setNextPhoneResendAt(Date.now() + 30_000);
+      toast.success("OTP sent on your phone.");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to send OTP");
+    } finally {
+      setPhoneOtpLoading(false);
+    }
+  };
+
+  const verifyPhoneOtp = async () => {
+    const normalized = normalizeIndianMobile(editForm.phone || profile?.phone || "");
+    if (!normalized) {
+      toast.error("Please enter a valid Indian mobile number.");
+      return;
+    }
+    if (!/^\d{6}$/.test(phoneOtp.trim())) {
+      toast.error("Please enter 6 digit OTP.");
+      return;
+    }
+
+    setPhoneOtpLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("phone-otp", {
+        body: { action: "verify", phone: `+91${normalized}`, otp: phoneOtp.trim() },
+      });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uid = sessionData?.session?.user?.id;
+      if (uid) await loadProfile(uid);
+
+      setPhoneVerifyOpen(false);
+      setPhoneOtp("");
+      setPhoneOtpStep("request");
+      toast.success("Phone verified successfully!");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to verify OTP");
+    } finally {
+      setPhoneOtpLoading(false);
     }
   };
 
@@ -894,7 +970,8 @@ export default function CustomerProfile() {
 
       if (error) throw error;
 
-      setProfile({ ...profile, ...editForm });
+      const phoneChanged = (profile.phone ?? "") !== editForm.phone;
+      setProfile({ ...profile, ...editForm, phone_verified_at: phoneChanged ? null : profile.phone_verified_at });
       setIsEditing(false);
       toast.success('Profile updated successfully!');
     } catch (error) {
@@ -1188,9 +1265,26 @@ export default function CustomerProfile() {
                   </h1>
                   <p className="text-gray-400 mb-2">{userEmail}</p>
                   {profile?.phone && (
-                    <p className="text-sm text-gray-400 flex items-center gap-2">
-                      <Phone className="w-4 h-4 text-amber-400/60" /> {profile.phone}
-                    </p>
+                    <div className="space-y-1">
+                      <p className="text-sm text-gray-400 flex items-center gap-2">
+                        <Phone className="w-4 h-4 text-amber-400/60" /> {profile.phone}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs">
+                        <Shield className="w-3.5 h-3.5 text-amber-400/60" />
+                        <span className={profile.phone_verified_at ? "text-green-400" : "text-red-400"}>
+                          {profile.phone_verified_at ? "Phone Verified" : "Phone Not Verified"}
+                        </span>
+                        {!profile.phone_verified_at && (
+                          <button
+                            type="button"
+                            className="text-amber-400 hover:text-amber-300 underline underline-offset-2"
+                            onClick={openPhoneVerify}
+                          >
+                            Verify Now
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   )}
                   {profile?.address && (
                     <p className="text-sm text-gray-400 flex items-center gap-2 mt-1">
@@ -1246,6 +1340,107 @@ export default function CustomerProfile() {
                   )}
                 </div>
               </div>
+
+              <Dialog open={phoneVerifyOpen} onOpenChange={setPhoneVerifyOpen}>
+                <DialogContent className="royal-dialog border-amber-400/30">
+                  <DialogHeader>
+                    <DialogTitle className="gold-text text-xl flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-amber-400" /> Verify Phone Number
+                    </DialogTitle>
+                    <DialogDescription className="text-gray-400">
+                      OTP sirf Indian number (+91) par jayega. OTP 10 minute ke liye valid rahega.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="phone_verify_phone" className="text-amber-400/80">Phone Number</Label>
+                      <Input
+                        id="phone_verify_phone"
+                        value={editForm.phone}
+                        onChange={(e) => {
+                          setEditForm({ ...editForm, phone: e.target.value });
+                        }}
+                        placeholder="e.g. 9876543210"
+                        disabled={phoneOtpLoading || phoneOtpStep === "verify"}
+                      />
+                      <p className="text-xs text-gray-400">Number change karoge to re-verify karna padega.</p>
+                    </div>
+
+                    {phoneOtpStep === "verify" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="phone_verify_otp" className="text-amber-400/80">OTP</Label>
+                        <Input
+                          id="phone_verify_otp"
+                          value={phoneOtp}
+                          onChange={(e) => setPhoneOtp(e.target.value)}
+                          placeholder="6 digit OTP"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          disabled={phoneOtpLoading}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <DialogFooter className="gap-3">
+                    <button
+                      type="button"
+                      className="royal-btn-outline px-4 py-2 rounded-lg"
+                      onClick={() => {
+                        setPhoneVerifyOpen(false);
+                        setPhoneOtp("");
+                        setPhoneOtpStep("request");
+                      }}
+                      disabled={phoneOtpLoading}
+                    >
+                      Cancel
+                    </button>
+
+                    {phoneOtpStep === "request" ? (
+                      <button
+                        type="button"
+                        className="royal-btn px-4 py-2 rounded-lg flex items-center gap-2"
+                        onClick={() => requestPhoneOtp("request")}
+                        disabled={phoneOtpLoading}
+                      >
+                        {phoneOtpLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" /> Sending...
+                          </>
+                        ) : (
+                          "Send OTP"
+                        )}
+                      </button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="royal-btn-outline px-4 py-2 rounded-lg"
+                          onClick={() => requestPhoneOtp("resend")}
+                          disabled={phoneOtpLoading}
+                        >
+                          Resend
+                        </button>
+                        <button
+                          type="button"
+                          className="royal-btn px-4 py-2 rounded-lg flex items-center gap-2"
+                          onClick={verifyPhoneOtp}
+                          disabled={phoneOtpLoading}
+                        >
+                          {phoneOtpLoading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" /> Verifying...
+                            </>
+                          ) : (
+                            "Verify"
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               {/* Edit Form */}
               {isEditing && (
