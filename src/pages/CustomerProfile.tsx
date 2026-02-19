@@ -1756,13 +1756,7 @@ export default function CustomerProfile() {
                                     </div>
 
                                     <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                      <button
-                                        className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs"
-                                        onClick={() => navigate(`/track-order?id=${order.order_id}`)}
-                                      >
-                                        Track Order
-                                      </button>
-
+                                      
                                       {order.status === 'delivered' && (
                                         <button
                                           className="royal-btn-outline px-3 py-1.5 rounded-lg text-xs flex items-center gap-2"

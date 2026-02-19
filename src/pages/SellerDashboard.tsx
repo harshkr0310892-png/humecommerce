@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Store, LogOut, Loader2, RefreshCw, Package, Tag, ShoppingBag, Upload, Edit2, Trash2, X, TrendingUp, Calendar, DollarSign, BarChart3, MessageCircle, Send, Menu, Star } from "lucide-react";
+import { Store, LogOut, Loader2, RefreshCw, Package, Tag, ShoppingBag, Upload, Edit2, Trash2, X, TrendingUp, Calendar, DollarSign, BarChart3, MessageCircle, Send, Menu, Star, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ProductVariantsEditor } from "@/components/admin/ProductVariantsEditor";
 import { PhotoViewerModal } from "@/components/PhotoViewerModal";
+import { SellerEmailSettings } from "@/components/seller/SellerEmailSettings";
 
 interface Seller {
   id: string;
@@ -174,7 +175,8 @@ export default function SellerDashboard() {
     | "delivery-boys"
     | "return-orders"
     | "reviews"
-    | "categories";
+    | "categories"
+    | "email-settings";
   const [activeTab, setActiveTab] = useState<TabValue>("products");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -1833,6 +1835,13 @@ export default function SellerDashboard() {
                     >
                       <Tag className="w-4 h-4 mr-2" /> Categories
                     </Button>
+                    <Button
+                      variant={activeTab === "email-settings" ? "royal" : "ghost"}
+                      className="justify-start"
+                      onClick={() => { setActiveTab("email-settings"); setMobileMenuOpen(false); }}
+                    >
+                      <Mail className="w-4 h-4 mr-2" /> Email Settings
+                    </Button>
                   </div>
                 </div>
               </SheetContent>
@@ -1876,6 +1885,10 @@ export default function SellerDashboard() {
             <TabsTrigger value="categories" className="flex items-center gap-2 whitespace-nowrap w-full justify-start sm:w-auto sm:justify-center">
               <Tag className="w-4 h-4" />
               Categories
+            </TabsTrigger>
+            <TabsTrigger value="email-settings" className="flex items-center gap-2 whitespace-nowrap w-full justify-start sm:w-auto sm:justify-center">
+              <Mail className="w-4 h-4" />
+              Email Settings
             </TabsTrigger>
           </TabsList>
 
@@ -3512,6 +3525,11 @@ export default function SellerDashboard() {
                   </div>
                 ))}
               </div>
+            )}
+          </TabsContent>
+          <TabsContent value="email-settings" className="space-y-6">
+            {sellerId && (
+              <SellerEmailSettings sellerId={sellerId} />
             )}
           </TabsContent>
         </Tabs>
