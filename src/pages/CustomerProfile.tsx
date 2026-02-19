@@ -471,6 +471,7 @@ interface Order {
   return_request_date?: string | null;
   return_processed_date?: string | null;
   return_refund_amount?: number | null;
+  updated_at?: string;
   items?: {
     product_name: string;
     quantity: number;

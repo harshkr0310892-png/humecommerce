@@ -34,6 +34,7 @@ interface Order {
   status: string;
   total: number;
   created_at: string;
+  updated_at: string;
 }
 
 interface OrderItem {
@@ -92,6 +93,8 @@ export default function TrackOrder() {
     navigate(`/auth?redirect=${encodeURIComponent(redirectTo)}`, { replace: true });
   }, [isLoggedIn, loading, location.pathname, location.search, navigate]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const initialSearchDoneRef = useRef(false);
+  const autoInvoiceTriggeredRef = useRef(false);
 
   // Scroll messages to bottom
   useEffect(() => {
@@ -135,19 +138,18 @@ export default function TrackOrder() {
     };
   }, [order?.id]);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!searchId.trim()) {
-      toast.error(searchType === 'order-id' 
+  const runSearch = async (searchBy: 'order-id' | 'phone', value: string) => {
+    const trimmed = value.trim();
+
+    if (!trimmed) {
+      toast.error(searchBy === 'order-id' 
         ? 'Please enter an order ID' 
         : 'Please enter a phone number');
       return;
     }
 
-    // Additional validation for phone number using enhanced validation
-    if (searchType === 'phone') {
-      const normalizedPhone = normalizeIndianMobile(searchId.trim());
+    if (searchBy === 'phone') {
+      const normalizedPhone = normalizeIndianMobile(trimmed);
       if (!normalizedPhone) {
         toast.error('Please enter a valid Indian mobile number');
         return;
@@ -161,21 +163,19 @@ export default function TrackOrder() {
     setMessages([]);
 
     try {
-      let orderData = null;
+      let orderData: Order | null = null;
       
-      if (searchType === 'order-id') {
-        // Fetch order by order ID
+      if (searchBy === 'order-id') {
         const { data, error: orderError } = await supabase
           .from('orders')
-          .select('id, order_id, customer_name, customer_phone, customer_address, customer_state, customer_pincode, customer_landmark1, customer_landmark2, customer_landmark3, status, total, created_at')
-          .eq('order_id', searchId.trim().toUpperCase())
+          .select('id, order_id, customer_name, customer_phone, customer_address, customer_state, customer_pincode, customer_landmark1, customer_landmark2, customer_landmark3, status, total, created_at, updated_at')
+          .eq('order_id', trimmed.toUpperCase())
           .maybeSingle();
           
         if (orderError) throw orderError;
-        orderData = data;
+        orderData = data as Order | null;
       } else {
-        // Use normalized phone number
-        const normalizedPhone = normalizeIndianMobile(searchId.trim());
+        const normalizedPhone = normalizeIndianMobile(trimmed);
         if (!normalizedPhone) {
           toast.error('Please enter a valid Indian mobile number');
           return;
@@ -183,29 +183,26 @@ export default function TrackOrder() {
         
         const formattedPhone = `+91${normalizedPhone}`;
         
-        // Fetch orders by phone number
         const { data, error: orderError } = await supabase
           .from('orders')
-          .select('id, order_id, customer_name, customer_phone, customer_address, customer_state, customer_pincode, customer_landmark1, customer_landmark2, customer_landmark3, status, total, created_at')
+          .select('id, order_id, customer_name, customer_phone, customer_address, customer_state, customer_pincode, customer_landmark1, customer_landmark2, customer_landmark3, status, total, created_at, updated_at')
           .eq('customer_phone', formattedPhone)
           .order('created_at', { ascending: false });
           
         if (orderError) throw orderError;
         
-        // If multiple orders found, use the most recent one
         if (data && data.length > 0) {
-          orderData = data[0];
+          orderData = data[0] as Order;
         }
       }
 
       if (!orderData) {
-        toast.error(searchType === 'order-id' 
+        toast.error(searchBy === 'order-id' 
           ? 'Order not found. Please check your order ID.' 
           : 'No orders found for this phone number.');
         return;
       }
 
-      // Fetch order items
       const { data: itemsData, error: itemsError } = await supabase
         .from('order_items')
         .select('*')
@@ -213,7 +210,6 @@ export default function TrackOrder() {
 
       if (itemsError) throw itemsError;
 
-      // Fetch product details
       const productIds = itemsData?.map(item => item.product_id) || [];
       if (productIds.length > 0) {
         const { data: productsData } = await supabase
@@ -228,7 +224,6 @@ export default function TrackOrder() {
         }
       }
 
-      // Fetch messages (only admin messages for display)
       const { data: messagesData } = await supabase
         .from('order_messages')
         .select('*')
@@ -240,7 +235,6 @@ export default function TrackOrder() {
       setOrderItems(itemsData || []);
       setMessages(messagesData || []);
       
-      // Show specific message for cancelled orders
       if (orderData.status === 'cancelled') {
         toast.error('This order has been cancelled.');
       } else {
@@ -254,9 +248,32 @@ export default function TrackOrder() {
     }
   };
 
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    runSearch(searchType, searchId);
+  };
+
+  useEffect(() => {
+    if (loading) return;
+    if (initialSearchDoneRef.current) return;
+
+    const params = new URLSearchParams(location.search);
+    const idParam = params.get('id');
+    if (!idParam) return;
+
+    initialSearchDoneRef.current = true;
+    setSearchType('order-id');
+    setSearchId(idParam);
+    runSearch('order-id', idParam);
+  }, [loading, location.search]);
+
   // Generate Invoice PDF
   const generateInvoice = async () => {
     if (!order || orderItems.length === 0) return;
+    if (order.status !== 'delivered') {
+      toast.error('Invoice is available only after your order is delivered.');
+      return;
+    }
     
     setGeneratingInvoice(true);
     
@@ -309,6 +326,26 @@ export default function TrackOrder() {
       // Calculate actual subtotal (before GST and shipping)
       const actualSubtotal = subtotal - shippingCharge;
       
+      const orderDate = new Date(order.created_at);
+      const orderDateString = orderDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+
+      let deliveredDateString = '';
+      let deliveredAgoString = '';
+
+      if (order.status === 'delivered' && order.updated_at) {
+        const deliveredDate = new Date(order.updated_at);
+        deliveredDateString = deliveredDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+        const diffSinceDeliveryMs = Date.now() - deliveredDate.getTime();
+        const diffSinceDeliveryDays = Math.max(0, Math.floor(diffSinceDeliveryMs / (1000 * 60 * 60 * 24)));
+        if (diffSinceDeliveryDays === 0) {
+          deliveredAgoString = 'Today';
+        } else if (diffSinceDeliveryDays === 1) {
+          deliveredAgoString = '1 day ago';
+        } else {
+          deliveredAgoString = `${diffSinceDeliveryDays} days ago`;
+        }
+      }
+      
       // Create invoice HTML content
       const invoiceContent = `
         <!DOCTYPE html>
@@ -348,7 +385,10 @@ export default function TrackOrder() {
         <body>
           <div class="invoice">
             <div class="header">
-              <div class="logo">kirana store</div>
+              <div>
+                <div class="logo">cartlyfy.com</div>
+                <p style="margin-top: 4px; color: #666; font-size: 12px;">store@cartlyfy.com</p>
+              </div>
               <div class="invoice-title">
                 <h1>INVOICE</h1>
                 <p>${order.order_id}</p>
@@ -370,7 +410,9 @@ export default function TrackOrder() {
               </div>
               <div class="info-block" style="text-align: right;">
                 <h3>Invoice Details</h3>
-                <p><strong>Date:</strong> ${new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                <p><strong>Order Date:</strong> ${orderDateString}</p>
+                ${deliveredDateString ? `<p><strong>Delivered On:</strong> ${deliveredDateString}</p>` : ''}
+                ${deliveredAgoString ? `<p><strong>Delivered:</strong> ${deliveredAgoString}</p>` : ''}
                 <p><strong>Status:</strong> <span class="status ${order.status}">${order.status.toUpperCase()}</span></p>
               </div>
             </div>
@@ -385,14 +427,23 @@ export default function TrackOrder() {
                 </tr>
               </thead>
               <tbody>
-                ${orderItems.map(item => `
+                ${orderItems.map(item => {
+                  const product = products[item.product_id];
+                  const imageUrl = product?.images?.[0] || product?.image_url || '';
+                  return `
                   <tr>
-                    <td>${item.product_name}</td>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:10px;">
+                        ${imageUrl ? `<img src="${imageUrl}" alt="${item.product_name}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;border:1px solid #eee;" />` : ''}
+                        <span>${item.product_name}</span>
+                      </div>
+                    </td>
                     <td class="qty">${item.quantity}</td>
                     <td class="price">₹${Number(item.product_price).toFixed(2)}</td>
                     <td class="price">₹${(Number(item.product_price) * item.quantity).toFixed(2)}</td>
                   </tr>
-                `).join('')}
+                `;
+                }).join('')}
               </tbody>
             </table>
             
@@ -409,7 +460,7 @@ export default function TrackOrder() {
               ` : ''}
               <div class="total-row">
                 <span>Shipping:</span>
-                <span>FREE</span>
+                <span>${shippingCharge === 0 ? 'FREE' : `₹${shippingCharge.toFixed(2)}`}</span>
               </div>
               <div class="total-row grand-total">
                 <span>Grand Total:</span>
@@ -418,8 +469,8 @@ export default function TrackOrder() {
             </div>
             
             <div class="footer">
-              <p>Thank you for shopping with Kirana Store!</p>
-              <p style="margin-top: 5px;">For any queries, please contact our support team.</p>
+              <p>Thank you for shopping with cartlyfy.com!</p>
+              <p style="margin-top: 5px;">For any queries, please email us at store@cartlyfy.com.</p>
             </div>
           </div>
         </body>
@@ -628,28 +679,35 @@ export default function TrackOrder() {
             <div className="animate-fade-in">
               {/* Order Status */}
               <div className="bg-card rounded-xl border border-border/50 p-6 mb-8">
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-2">
                   <div>
                     <div className="flex items-center gap-3">
                       <div>
                         <p className="text-sm text-muted-foreground">Order ID</p>
                         <p className="font-display text-xl font-bold text-primary">{order.order_id}</p>
                       </div>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={generateInvoice}
-                        disabled={generatingInvoice}
-                        className="flex items-center gap-2"
-                      >
-                        {generatingInvoice ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <FileText className="w-4 h-4" />
-                        )}
-                        Invoice
-                      </Button>
+                      {order.status === 'delivered' && (
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={generateInvoice}
+                          disabled={generatingInvoice}
+                          className="flex items-center gap-2"
+                        >
+                          {generatingInvoice ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <FileText className="w-4 h-4" />
+                          )}
+                          Invoice
+                        </Button>
+                      )}
                     </div>
+                    {order.status !== 'delivered' && (
+                      <p className="text-xs text-amber-400/80 mt-2">
+                        Invoice will be available once your order is delivered.
+                      </p>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-muted-foreground">Order Date</p>
