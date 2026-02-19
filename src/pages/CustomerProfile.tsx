@@ -3336,7 +3336,14 @@ const ReturnOrderButton = ({ order, profile, onReturnRequest }: { order: Order, 
       return false;
     }
 
+    // Check if order status is delivered before allowing return
+    if (order.status !== 'delivered') {
+      toast.error("Cannot return order. Only delivered orders can be returned.");
+      return false;
+    }
+    
     // Calculate days since order was delivered (not since order was created)
+    // For delivered orders, we use updated_at which represents when it was marked as delivered
     const deliveredDate = order.updated_at ? new Date(order.updated_at) : new Date(order.created_at);
     const currentDate = new Date();
     const diffTime = Math.abs(currentDate.getTime() - deliveredDate.getTime());
@@ -3344,7 +3351,7 @@ const ReturnOrderButton = ({ order, profile, onReturnRequest }: { order: Order, 
 
     // Check if order was delivered more than 7 days ago
     if (diffDays > 7) {
-      toast.error("Cannot return order. Order was delivered more than 7 days ago (7-day return window has passed).");
+      toast.error(`Cannot return order. Order was delivered ${diffDays} days ago (7-day return window has passed).`);
       return false;
     }
     
