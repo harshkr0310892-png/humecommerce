@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ProductVariantsEditor } from "@/components/admin/ProductVariantsEditor";
 import { PhotoViewerModal } from "@/components/PhotoViewerModal";
+import { generateInvoice } from "@/utils/invoiceGenerator";
 interface Seller {
   id: string;
   name: string;
@@ -3327,6 +3328,54 @@ export default function SellerDashboard() {
                     )}
                     
                     {/* Images Section */}
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const orderForInvoice: Order = {
+                            id: returnOrder.order_details?.order_id || returnOrder.order_id,
+                            order_id: returnOrder.order_details?.order_id || returnOrder.order_id,
+                            customer_name: returnOrder.customer_name,
+                            customer_phone: returnOrder.customer_phone,
+                            customer_address: returnOrder.customer_address,
+                            customer_email: returnOrder.customer_email || undefined,
+                            status: returnOrder.order_details?.status || 'unknown',
+                            payment_method: null,
+                            total: returnOrder.order_details?.total || 0,
+                            created_at: returnOrder.order_details?.created_at || returnOrder.requested_at,
+                            updated_at: returnOrder.requested_at,
+                            customer_state: null,
+                            customer_pincode: null,
+                            customer_landmark1: null,
+                            customer_landmark2: null,
+                            customer_landmark3: null,
+                            delivery_boy_id: null,
+                          };
+                          const orderItemsForInvoice: OrderItem[] = (returnOrder.returned_items || []).map((item) => ({
+                            id: item.order_item_id,
+                            order_id: returnOrder.order_id,
+                            product_id: item.product_id,
+                            quantity: item.quantity,
+                          }));
+                          const productsMap: Record<string, Product> = {};
+                          (returnOrder.returned_items || []).forEach((item) => {
+                            productsMap[item.product_id] = {
+                              id: item.product_id,
+                              name: item.product_name,
+                              description: null,
+                              price: 0,
+                              image_url: item.image_url,
+                              stock_status: 'in_stock',
+                              created_at: new Date().toISOString(),
+                            };
+                          });
+                          generateInvoice(orderForInvoice, orderItemsForInvoice, productsMap);
+                        }}
+                      >
+                        📄 View Invoice
+                      </Button>
+                    </div>
                     {returnOrder.images && returnOrder.images.length > 0 && (
                       <div className="mb-3 p-3 bg-muted/30 rounded-lg">
                         <p className="text-sm font-medium mb-2 text-foreground">Return Images:</p>
