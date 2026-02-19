@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { Loader2, Plus, Trash2, Edit3 } from "lucide-react";
+import { toast } from "sonner";
+import { Plus, Trash2, Loader2 } from "lucide-react";
 
 interface SellerNotificationEmail {
   id: string;
@@ -15,6 +15,7 @@ interface SellerNotificationEmail {
   email: string;
   is_primary: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 interface SellerEmailSettingsProps {
@@ -22,25 +23,18 @@ interface SellerEmailSettingsProps {
 }
 
 export const SellerEmailSettings = ({ sellerId }: SellerEmailSettingsProps) => {
-  const [emails, setEmails] = useState<SellerNotificationEmail[]>([]);
-  const [newEmail, setNewEmail] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingEmail, setEditingEmail] = useState("");
-  const [loading, setLoading] = useState(true);
   const queryClient = useQueryClient();
+  const [newEmail, setNewEmail] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
 
-  // Fetch seller notification emails
-  const { data: fetchedEmails, isLoading, refetch } = useQuery({
+  const { data: emails = [], isLoading, refetch } = useQuery({
     queryKey: ["seller-notification-emails", sellerId],
     queryFn: async () => {
-      // For now, we'll keep using direct table access for fetching since we need to select
-      // Eventually we'd want a custom function for this too, but for simplicity we'll allow
-      // this read operation through RLS by making sure the seller_id matches
       const { data, error } = await supabase
         .from("seller_notification_emails")
         .select("*")
         .eq("seller_id", sellerId)
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
       return data as SellerNotificationEmail[];
@@ -48,127 +42,63 @@ export const SellerEmailSettings = ({ sellerId }: SellerEmailSettingsProps) => {
     enabled: !!sellerId,
   });
 
-  useEffect(() => {
-    if (fetchedEmails) {
-      setEmails(fetchedEmails);
-    }
-  }, [fetchedEmails]);
-
   const addEmailMutation = useMutation({
-    mutationFn: async (email: string) => {
-      // Validate email format
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        throw new Error("Please enter a valid email address");
-      }
-
-      // Check if email already exists
-      const existingEmail = emails.find(e => e.email.toLowerCase() === email.toLowerCase());
-      if (existingEmail) {
-        throw new Error("This email is already added");
-      }
-
-      // Check if we've reached the limit of 5 emails
-      if (emails.length >= 5) {
-        throw new Error("Maximum of 5 notification emails allowed");
-      }
-
-      const { error } = await supabase
-        .from("seller_notification_emails")
-        .insert([{ seller_id: sellerId, email, is_primary: emails.length === 0 }]); // Make first email primary
-
+    mutationFn: async ({ email, isPrimary }: { email: string; isPrimary: boolean }) => {
+      const { error } = await supabase.rpc("add_seller_notification_email", {
+        p_seller_id: sellerId,
+        p_email: email,
+        p_is_primary: isPrimary,
+      });
+      
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["seller-notification-emails", sellerId] });
-      setNewEmail("");
       toast.success("Email added successfully");
+      setNewEmail("");
+      setIsAdding(false);
     },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to add email");
+    onError: (error) => {
+      console.error("Error adding email:", error);
+      toast.error("Failed to add email");
     },
   });
 
   const updateEmailMutation = useMutation({
-    mutationFn: async ({ id, email, is_primary }: { id: string; email: string; is_primary: boolean }) => {
-      // Validate email format
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        throw new Error("Please enter a valid email address");
-      }
-
-      // Check if email already exists (excluding current record)
-      const existingEmail = emails.find(e => 
-        e.id !== id && e.email.toLowerCase() === email.toLowerCase()
-      );
-      if (existingEmail) {
-        throw new Error("This email is already added");
-      }
-
-      const { error } = await supabase
-        .from("seller_notification_emails")
-        .update({ email, is_primary })
-        .eq("id", id);
-
+    mutationFn: async ({ id, email, isPrimary }: { id: string; email: string; isPrimary: boolean }) => {
+      const { error } = await supabase.rpc("update_seller_notification_email", {
+        p_id: id,
+        p_email: email,
+        p_is_primary: isPrimary,
+      });
+      
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["seller-notification-emails", sellerId] });
-      setEditingId(null);
-      setEditingEmail("");
       toast.success("Email updated successfully");
     },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to update email");
+    onError: (error) => {
+      console.error("Error updating email:", error);
+      toast.error("Failed to update email");
     },
   });
 
   const deleteEmailMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("seller_notification_emails")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["seller-notification-emails", sellerId] });
-      toast.success("Email removed successfully");
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to remove email");
-    },
-  });
-
-  const togglePrimaryEmailMutation = useMutation({
-    mutationFn: async (id: string) => {
-      // Get the current email details to use in the update function
-      const emailRecord = emails.find(e => e.id === id);
-      if (!emailRecord) {
-        throw new Error('Email record not found');
-      }
+      const { error } = await supabase.rpc("delete_seller_notification_email", {
+        p_id: id,
+      });
       
-      // First, unmark all emails as primary for this seller
-      await supabase
-        .from("seller_notification_emails")
-        .update({ is_primary: false })
-        .eq("seller_id", sellerId);
-
-      // Then mark the selected email as primary
-      const { error } = await supabase
-        .from("seller_notification_emails")
-        .update({ is_primary: true })
-        .eq("id", id);
-
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["seller-notification-emails", sellerId] });
-      toast.success("Primary email updated successfully");
+      toast.success("Email deleted successfully");
     },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to update primary email");
+    onError: (error) => {
+      console.error("Error deleting email:", error);
+      toast.error("Failed to delete email");
     },
   });
 
@@ -177,29 +107,37 @@ export const SellerEmailSettings = ({ sellerId }: SellerEmailSettingsProps) => {
       toast.error("Please enter an email address");
       return;
     }
-    addEmailMutation.mutate(newEmail.trim());
-  };
 
-  const handleSaveEdit = () => {
-    if (!editingId || !editingEmail.trim()) {
-      toast.error("Please enter an email address");
+    if (!/\S+@\S+\.\S+/.test(newEmail)) {
+      toast.error("Please enter a valid email address");
       return;
     }
-    updateEmailMutation.mutate({ id: editingId, email: editingEmail.trim(), is_primary: emails.find(e => e.id === editingId)?.is_primary || false });
+
+    setIsAdding(true);
+    // If no emails exist, make this the primary email
+    const isPrimary = emails.length === 0;
+    addEmailMutation.mutate({ email: newEmail.trim(), isPrimary });
   };
 
-  const handleTogglePrimary = (id: string, is_primary: boolean) => {
-    if (is_primary) return; // Already primary
-    togglePrimaryEmailMutation.mutate(id);
+  const togglePrimary = (id: string, currentEmail: string) => {
+    updateEmailMutation.mutate({ id, email: currentEmail, isPrimary: true });
+  };
+
+  const handleDelete = (id: string) => {
+    if (emails.length <= 1) {
+      toast.error("You must have at least one email address");
+      return;
+    }
+    deleteEmailMutation.mutate(id);
   };
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Seller Notification Emails</CardTitle>
+          <CardTitle>Email Notifications</CardTitle>
           <CardDescription>
-            Add up to 5 email addresses where you want to receive order notifications
+            Manage email addresses where you receive order notifications, return requests, and other important updates
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -207,115 +145,131 @@ export const SellerEmailSettings = ({ sellerId }: SellerEmailSettingsProps) => {
             <Input
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
-              placeholder="Enter email address"
+              placeholder="Enter email address for notifications"
               className="flex-1"
-              onKeyDown={(e) => e.key === 'Enter' && handleAddEmail()}
+              onKeyDown={(e) => e.key === "Enter" && handleAddEmail()}
             />
             <Button 
               onClick={handleAddEmail} 
-              disabled={addEmailMutation.isPending || !newEmail.trim()}
+              disabled={addEmailMutation.isPending}
             >
               {addEmailMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Adding...
+                </>
               ) : (
-                <Plus className="w-4 h-4" />
+                <>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add
+                </>
               )}
-              Add
             </Button>
           </div>
 
-          {emails && emails.length > 0 ? (
+          {isLoading ? (
+            <div className="text-center py-4">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+            </div>
+          ) : emails.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>No notification emails configured yet</p>
+              <p className="text-sm mt-1">Add an email to start receiving notifications</p>
+            </div>
+          ) : (
             <div className="space-y-3">
-              {emails.map((item) => (
+              {emails.map((emailItem) => (
                 <div 
-                  key={item.id} 
-                  className={`flex items-center gap-3 p-3 rounded-lg border ${
-                    item.is_primary ? 'bg-primary/5 border-primary' : 'border-border'
+                  key={emailItem.id} 
+                  className={`flex items-center justify-between p-3 rounded-lg border ${
+                    emailItem.is_primary 
+                      ? "border-primary bg-primary/5" 
+                      : "border-border"
                   }`}
                 >
-                  {editingId === item.id ? (
-                    <>
-                      <Input
-                        value={editingEmail}
-                        onChange={(e) => setEditingEmail(e.target.value)}
-                        className="flex-1"
-                        autoFocus
-                      />
-                      <Button 
-                        size="sm" 
-                        onClick={handleSaveEdit}
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{emailItem.email}</span>
+                      {emailItem.is_primary && (
+                        <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
+                          Primary
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Added {new Date(emailItem.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    {!emailItem.is_primary && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => togglePrimary(emailItem.id, emailItem.email)}
                         disabled={updateEmailMutation.isPending}
                       >
-                        Save
+                        Set as Primary
                       </Button>
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        onClick={() => {
-                          setEditingId(null);
-                          setEditingEmail("");
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex-1">
-                        <div className="font-medium">{item.email}</div>
-                        {item.is_primary && (
-                          <div className="text-xs text-primary font-medium">Primary email</div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2">
-                          <Label htmlFor={`primary-${item.id}`}>Primary</Label>
-                          <Switch
-                            id={`primary-${item.id}`}
-                            checked={item.is_primary}
-                            onCheckedChange={() => handleTogglePrimary(item.id, item.is_primary)}
-                            disabled={togglePrimaryEmailMutation.isPending}
-                          />
-                        </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => {
-                            setEditingId(item.id);
-                            setEditingEmail(item.email);
-                          }}
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="destructive"
-                          onClick={() => deleteEmailMutation.mutate(item.id)}
-                          disabled={deleteEmailMutation.isPending}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </>
-                  )}
+                    )}
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDelete(emailItem.id)}
+                      disabled={deleteEmailMutation.isPending}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <p>No notification emails added yet</p>
-              <p className="text-sm mt-1">Add an email to start receiving order notifications</p>
-            </div>
           )}
+        </CardContent>
+      </Card>
 
-          <div className="text-sm text-muted-foreground mt-4">
-            <p><strong>Information:</strong></p>
-            <ul className="list-disc list-inside space-y-1 mt-2">
-              <li>You can add up to 5 email addresses</li>
-              <li>All emails will receive the same notifications</li>
-              <li>Primary email is highlighted and can be used as the main contact</li>
-              <li>You'll receive notifications for new orders, returns, and cancellations</li>
-            </ul>
+      <Card>
+        <CardHeader>
+          <CardTitle>Notification Preferences</CardTitle>
+          <CardDescription>
+            Configure what types of notifications you want to receive
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="font-normal">New Orders</Label>
+                <p className="text-sm text-muted-foreground">Receive notifications when you get new orders</p>
+              </div>
+              <Switch defaultChecked />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="font-normal">Return Requests</Label>
+                <p className="text-sm text-muted-foreground">Get notified when customers request returns</p>
+              </div>
+              <Switch defaultChecked />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="font-normal">Order Updates</Label>
+                <p className="text-sm text-muted-foreground">Receive status updates for your orders</p>
+              </div>
+              <Switch defaultChecked />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="font-normal">Low Stock Alerts</Label>
+                <p className="text-sm text-muted-foreground">Get notified when products are running low</p>
+              </div>
+              <Switch />
+            </div>
           </div>
         </CardContent>
       </Card>
